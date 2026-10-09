@@ -55,7 +55,6 @@ const CATEGORY_RULES = [
 ];
 
 // Default tax states — user can add more via the UI
-const MAX_BRACKET = 999999999;
 const DEFAULT_TAX_STATES = [
   {
     code: 'OK', name: 'Oklahoma',
@@ -68,6 +67,15 @@ const DEFAULT_TAX_STATES = [
       { min: 7200, max: MAX_BRACKET, rate: 4.75 }
     ]
   },
+  {
+    code: 'KS', name: 'Kansas',
+    brackets: [
+      { min: 0, max: 15000, rate: 3.10 },
+      { min: 15000, max: 30000, rate: 5.25 },
+      { min: 30000, max: MAX_BRACKET, rate: 5.70 }
+    ]
+  },
+  { code: 'CO', name: 'Colorado', brackets: [{ min: 0, max: MAX_BRACKET, rate: 4.40 }] },
   { code: 'TX', name: 'Texas', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] },
   { code: 'FL', name: 'Florida', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] }
 ];
@@ -386,41 +394,52 @@ class MoneyTrackerApp {
   }
 
   tplPaycheck() {
-    const stateOpts = this.state.taxStates.map(s =>
-      `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
-    ).join('');
-    return `
-      <section class="view-container active">
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
-            <div style="display:flex; flex-direction:column; gap:0.75rem;">
-              <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="20" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
-            </div>
+  const stateOpts = this.state.taxStates.map(s =>
+    `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
+  ).join('');
+  return `
+    <section class="view-container active">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
+        <div class="card">
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
+          <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="20" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
           </div>
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Deductions & Taxes</h3>
-            <div style="display:flex; flex-direction:column; gap:0.75rem;">
-              <div>
-                <label class="stat-label">State</label>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
-                  <select id="payState" style="flex:1;">${stateOpts}</select>
-                  <button class="btn btn-sm" data-action="openTaxBracketModal" title="Manage state tax brackets">⚙️</button>
-                </div>
+        </div>
+        <div class="card">
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Deductions & Taxes</h3>
+          <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div>
+              <label class="stat-label">State</label>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <select id="payState" style="flex:1;">${stateOpts}</select>
+                <button class="btn btn-sm" data-action="openTaxBracketModal" title="Manage state tax brackets">⚙️</button>
               </div>
-              <div><label class="stat-label">Federal Tax Rate (%)</label><input type="number" id="payFederalRate" value="12" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Monthly Benefits Cost ($)</label><input type="number" id="payBenefits" value="0" oninput="app.debouncedPaycheck()"></div>
             </div>
+            <div><label class="stat-label">Federal Tax Rate (%)</label><input type="number" id="payFederalRate" value="12" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Monthly Benefits Cost ($)</label><input type="number" id="payBenefits" value="0" oninput="app.debouncedPaycheck()"></div>
           </div>
         </div>
-        <div class="card" style="margin-top:1.5rem;">
-          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Paycheck Summary</h3>
-          <div id="paycheckResults" style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;"></div>
+      </div>
+      <div class="card" style="margin-top:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Paycheck Summary</h3>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <label class="stat-label" style="margin:0;">Period</label>
+            <select id="payPeriod" onchange="app.calculatePaycheck()" style="width:auto; min-width:130px;">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Bi-Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly" selected>Yearly</option>
+            </select>
+          </div>
         </div>
-      </section>`;
+        <div id="paycheckResults"></div>
+      </div>
+    </section>`;
   }
 
   tplCalendar() {
@@ -1130,82 +1149,91 @@ class MoneyTrackerApp {
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
-    const get = (id, def) => parseFloat(document.getElementById(id)?.value) || def;
-    const hourly = get('payHourlyRate', 20);
-    const hours = get('payHours', 40);
-    const weeks = get('payWeeks', 52);
-    const benefits = get('payBenefits', 0);
-    const fedRate = get('payFederalRate', 12);
-    const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
+  const get = (id, def) => parseFloat(document.getElementById(id)?.value) || def;
+  const hourly = get('payHourlyRate', 20);
+  const hours = get('payHours', 40);
+  const weeks = get('payWeeks', 52);
+  const benefits = get('payBenefits', 0);
+  const fedRate = get('payFederalRate', 12);
+  const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
+  const period = document.getElementById('payPeriod')?.value || 'yearly';
 
-    const weeklyGross = hourly * hours;
-    const annualGross = weeklyGross * weeks;
-    const monthlyGross = annualGross / 12;
+  const weeklyGross = hourly * hours;
+  const annualGross = weeklyGross * weeks;
 
-    // Progressive state tax
-    const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
-    let stateTax = 0;
-    let effectiveStateRate = 0;
-    if (stateData) {
-      stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
-      effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
+  const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
+  let stateTax = 0;
+  let effectiveStateRate = 0;
+  if (stateData) {
+    stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
+    effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
+  }
+
+  const fedTax = annualGross * (fedRate / 100);
+  const ss = annualGross * 0.062;
+  const med = annualGross * 0.0145;
+  const totalTax = fedTax + stateTax + ss + med;
+  const annualBenefits = benefits * 12;
+  const annualNet = annualGross - totalTax - annualBenefits;
+
+  // Period divisors — no extra storage, just divide
+  const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
+  const div = divisors[period] || 1;
+  const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
+
+  const pGross = annualGross / div;
+  const pNet = annualNet / div;
+  const pFed = fedTax / div;
+  const pState = stateTax / div;
+  const pSS = ss / div;
+  const pMed = med / div;
+  const pBenefits = annualBenefits / div;
+
+  // Bracket breakdown (shows per-period amounts)
+  let bracketBreakdown = '';
+  if (stateData && stateData.brackets.length > 1) {
+    const rows = [];
+    for (const b of stateData.brackets) {
+      if (annualGross <= b.min) break;
+      const taxable = Math.min(annualGross, b.max) - b.min;
+      if (taxable <= 0) continue;
+      const taxAtBracket = taxable * (b.rate / 100);
+      const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
+      rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
+        <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
+        <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
+      </div>`);
     }
-
-    const fedTax = annualGross * (fedRate / 100);
-    const ss = annualGross * 0.062;
-    const med = annualGross * 0.0145;
-    const totalTax = fedTax + stateTax + ss + med;
-    const annualBenefits = benefits * 12;
-    const annualNet = annualGross - totalTax - annualBenefits;
-    const monthlyNet = annualNet / 12;
-
-    // Build bracket breakdown HTML if state has multiple brackets
-    let bracketBreakdown = '';
-    if (stateData && stateData.brackets.length > 1) {
-      const rows = [];
-      for (const b of stateData.brackets) {
-        if (annualGross <= b.min) break;
-        const taxable = Math.min(annualGross, b.max) - b.min;
-        if (taxable <= 0) continue;
-        const taxAtBracket = taxable * (b.rate / 100);
-        const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
-        rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
-          <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
-          <span class="mono" style="color:var(--accent-negative);">$${taxAtBracket.toFixed(2)}</span>
-        </div>`);
-      }
-      if (rows.length > 0) {
-        bracketBreakdown = `<div style="background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-top:0.5rem;">
-          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.3rem;">${this.escapeHtml(stateData.name)} Brackets</div>
-          ${rows.join('')}
-        </div>`;
-      }
-    }
-
-    const el = document.getElementById('paycheckResults');
-    if (!el) return;
-    el.innerHTML = `
-      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div class="stat-label">ANNUAL GROSS</div>
-        <div class="stat-value mono" style="font-size:1.3rem;">$${annualGross.toFixed(2)}</div>
-        <div class="stat-subtext">Monthly: $${monthlyGross.toFixed(2)}</div>
-      </div>
-      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div class="stat-label">ANNUAL NET (TAKE HOME)</div>
-        <div class="stat-value mono" style="color:var(--accent-positive); font-size:1.3rem;">$${annualNet.toFixed(2)}</div>
-        <div class="stat-subtext">Monthly: $${monthlyNet.toFixed(2)}</div>
-      </div>
-      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); grid-column:1/-1;">
-        <div class="stat-label">DEDUCTIONS BREAKDOWN</div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; margin-top:0.5rem;">
-          <div>Federal (${fedRate}%): <span style="color:var(--accent-negative);">$${fedTax.toFixed(2)}</span></div>
-          <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (eff. ${effectiveStateRate.toFixed(2)}%): <span style="color:var(--accent-negative);">$${stateTax.toFixed(2)}</span></div>
-          <div>Social Security: <span style="color:var(--accent-negative);">$${ss.toFixed(2)}</span></div>
-          <div>Medicare: <span style="color:var(--accent-negative);">$${med.toFixed(2)}</span></div>
-          <div>Benefits: <span style="color:var(--accent-negative);">$${annualBenefits.toFixed(2)}</span></div>
-        </div>
-        ${bracketBreakdown}
+    if (rows.length > 0) {
+      bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
+        ${rows.join('')}
       </div>`;
+    }
+  }
+
+  const el = document.getElementById('paycheckResults');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
+      <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
+    </div>
+    <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
+      <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
+    </div>
+    <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
+      <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
+        <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
+        <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
+        <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
+        <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
+        <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
+      </div>
+      ${bracketBreakdown}
+    </details>`;
   }
 
   /* ============ TAX BRACKET MODAL ============ */
@@ -1235,13 +1263,16 @@ class MoneyTrackerApp {
 
           <div id="tbEditor"></div>
 
-          <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn" data-action="closeModal">Cancel</button>
-              <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
-            </div>
-          </div>
+          <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
+    <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
+  </div>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn" data-action="closeModal">Cancel</button>
+    <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
+  </div>
+</div>
         </div>
       </div>`);
     if (current) this.loadBracketEditor(current.code);
@@ -1339,6 +1370,20 @@ class MoneyTrackerApp {
     this.closeModal();
     this.renderTabContent('paycheck');
     this.showToast(`Deleted ${code}`);
+  }
+
+  resetTaxBrackets() {
+  if (!confirm(
+    'Reset to default state brackets?\n\n' +
+    'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
+    'Any custom states you have added will be removed.'
+  )) return;
+  this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+  this.state.selectedState = 'OK';
+  this.saveState();
+  this.closeModal();
+  this.renderTabContent('paycheck');
+  this.showToast('Reset to default state brackets');
   }
 
   newTaxState() {
