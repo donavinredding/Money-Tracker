@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIAMOND MONEY TRACKER</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top-bar">
+<div class="brand">
+<svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+<polygon points="12 2 2 12 12 22 22 12 12 2"></polygon>
+</svg>
+<span>MONEY TRACKER</span>
+</div>
+
+<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+<select id="globalAccountSelect" style="width: 160px;">
+<option value="ALL">Combined Scope</option>
+<option value="CHECKING">Checking 0199</option>
+<option value="SAVINGS">Savings 3703</option>
+</select>
+
+<button class="btn btn-sm" data-action="openRulesModal">⚙ Rules</button>
+<button class="btn btn-sm" data-action="openImportWizard"><span style="color:var(--accent-primary)">+</span> Import CSV</button>
+<button class="btn btn-sm btn-danger" data-action="clearAllData">Clear Data</button>
+<button class="btn btn-sm" data-action="exportJSON">Export JSON</button>
+<button class="btn btn-sm" data-action="triggerImportJSON">Restore</button>
+<button class="btn btn-sm" data-action="renderCharts">🔄 Refresh Charts</button>
+<input type="file" id="jsonInput" accept=".json" style="display:none">
+</div>
+</header>
+
+<nav class="nav-tabs" id="tabStrip">
+<button class="tab-btn active" data-tab="checking">Checking</button>
+<button class="tab-btn" data-tab="savings">Savings</button>
+<button class="tab-btn" data-tab="networth">Net Worth</button>
+<button class="tab-btn" data-tab="debts">Debt Payoff</button>
+<button class="tab-btn" data-tab="paycheck">Paycheck Calc</button>
+<button class="tab-btn" data-tab="calendar">Calendar</button>
+<button class="tab-btn" data-tab="forecaster">Forecaster</button>
+<button class="tab-btn" data-tab="apy">APY Simulator</button>
+</nav>
+
+<main id="mainContent">
+<!-- Content will be injected by app.js based on the active tab -->
+</main>
+
+<!-- Modals will be injected by app.js -->
+<div id="modalContainer"></div>
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
