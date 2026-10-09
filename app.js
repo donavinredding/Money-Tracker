@@ -1,6 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 6
-   Multi-Type Scenarios + Calendar Amounts
+   MONEY TRACKER APP - STEP 4
+   Progressive Tax Brackets + State Manager
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -54,8 +54,8 @@ const CATEGORY_RULES = [
   { contains: "SAM'S CLUB", category: "Shopping", flow: "Flexible Spending" }
 ];
 
+// Default tax states — user can add more via the UI
 const MAX_BRACKET = 999999999;
-
 const DEFAULT_TAX_STATES = [
   {
     code: 'OK', name: 'Oklahoma',
@@ -82,13 +82,13 @@ const DEFAULT_TAX_STATES = [
 ];
 
 const INITIAL_EMPTY_STATE = {
-  version: 4,
+  version: 3,
   accounts: {
     CHECKING: { id: "CHECKING", name: "Joint Checking", verifiedBalance: 0.00 },
     SAVINGS: { id: "SAVINGS", name: "Joint Savings", verifiedBalance: 0.00 }
   },
   vaults: [], pendingItems: [], transactions: [],
-  scenarios: [{ id: "sc_honda", name: "Increase Honda Payment", type: "adjustment", amount: -100.00, active: true }],
+  scenarios: [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }],
   suggestedVaults: [], nicknameRules: [], loans: [],
   taxStates: JSON.parse(JSON.stringify(DEFAULT_TAX_STATES)),
   selectedState: 'OK'
@@ -110,7 +110,7 @@ class MoneyTrackerApp {
     this.searchQuery = '';
     this.stagedFiles = [];
     this.editingStateCode = null;
-    this.editingScenarioId = null;
+    this._piManual = false;
   }
 
   /* ============ STORAGE ============ */
@@ -121,17 +121,20 @@ class MoneyTrackerApp {
         const p = JSON.parse(saved);
         p.vaults = p.vaults || []; p.pendingItems = p.pendingItems || [];
         p.transactions = p.transactions || [];
-        p.scenarios = p.scenarios || [{ id: "sc_honda", name: "Increase Honda Payment", type: "adjustment", amount: -100.00, active: true }];
-        // Migrate old scenarios to 'adjustment' type
-        p.scenarios.forEach(s => {
-          if (!s.type) s.type = 'adjustment';
-          if (s.active === undefined) s.active = true;
-        });
+        p.scenarios = p.scenarios || [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }];
+        // Migrate old scenarios to include a `type` field
+        p.scenarios.forEach(s => { if (!s.type) s.type = 'custom'; });
         p.suggestedVaults = p.suggestedVaults || []; p.nicknameRules = p.nicknameRules || [];
         p.loans = p.loans || [];
         p.accounts = p.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
-        if (p.accounts.CHECKING) p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
-        if (p.accounts.SAVINGS) p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+        // Sanitize account names (remove old account numbers)
+        if (p.accounts.CHECKING) {
+          p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
+        }
+        if (p.accounts.SAVINGS) {
+          p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+        }
+        // Ensure taxStates exists and has defaults
         if (!p.taxStates || !Array.isArray(p.taxStates) || p.taxStates.length === 0) {
           p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
@@ -208,8 +211,6 @@ class MoneyTrackerApp {
         this.saveState();
         this.calculatePaycheck();
       }
-      else if (t.matches('#payPeriod')) this.calculatePaycheck();
-      else if (t.matches('#scenarioType')) this.renderScenarioTypeFields(t.value);
     });
 
     document.body.addEventListener('input', (e) => {
@@ -397,52 +398,52 @@ class MoneyTrackerApp {
   }
 
   tplPaycheck() {
-    const stateOpts = this.state.taxStates.map(s =>
-      `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
-    ).join('');
-    return `
-      <section class="view-container active">
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
-            <div style="display:flex; flex-direction:column; gap:0.75rem;">
-              <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="20" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
-            </div>
+  const stateOpts = this.state.taxStates.map(s =>
+    `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
+  ).join('');
+  return `
+    <section class="view-container active">
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
+        <div class="card">
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
+          <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="20" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
           </div>
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Deductions & Taxes</h3>
-            <div style="display:flex; flex-direction:column; gap:0.75rem;">
-              <div>
-                <label class="stat-label">State</label>
-                <div style="display:flex; gap:0.5rem; align-items:center;">
-                  <select id="payState" style="flex:1;">${stateOpts}</select>
-                  <button class="btn btn-sm" data-action="openTaxBracketModal" title="Manage state tax brackets">⚙️</button>
-                </div>
+        </div>
+        <div class="card">
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Deductions & Taxes</h3>
+          <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div>
+              <label class="stat-label">State</label>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <select id="payState" style="flex:1;">${stateOpts}</select>
+                <button class="btn btn-sm" data-action="openTaxBracketModal" title="Manage state tax brackets">⚙️</button>
               </div>
-              <div><label class="stat-label">Federal Tax Rate (%)</label><input type="number" id="payFederalRate" value="12" oninput="app.debouncedPaycheck()"></div>
-              <div><label class="stat-label">Monthly Benefits Cost ($)</label><input type="number" id="payBenefits" value="0" oninput="app.debouncedPaycheck()"></div>
             </div>
+            <div><label class="stat-label">Federal Tax Rate (%)</label><input type="number" id="payFederalRate" value="12" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Monthly Benefits Cost ($)</label><input type="number" id="payBenefits" value="0" oninput="app.debouncedPaycheck()"></div>
           </div>
         </div>
-        <div class="card" style="margin-top:1.5rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size:1rem; font-weight:600;">Paycheck Summary</h3>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <label class="stat-label" style="margin:0;">Period</label>
-              <select id="payPeriod" style="width:auto; min-width:130px;">
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Bi-Weekly</option>
-                <option value="monthly">Monthly</option>
-                <option value="yearly" selected>Yearly</option>
-              </select>
-            </div>
+      </div>
+      <div class="card" style="margin-top:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Paycheck Summary</h3>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <label class="stat-label" style="margin:0;">Period</label>
+            <select id="payPeriod" onchange="app.calculatePaycheck()" style="width:auto; min-width:130px;">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly" selected>Bi-Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
           </div>
-          <div id="paycheckResults"></div>
         </div>
-      </section>`;
+        <div id="paycheckResults"></div>
+      </div>
+    </section>`;
   }
 
   tplCalendar() {
@@ -749,6 +750,88 @@ class MoneyTrackerApp {
     return this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated');
   }
 
+  /* ============ RECURRING GROUPS (for scenarios) ============ */
+  // Returns array of { groupId, description, category, amount, monthly, ruleConfig, count }
+  getRecurringGroups(categoryFilter) {
+    const groups = new Map();
+    (this.state.transactions || []).forEach(t => {
+      if (t.status !== 'estimated' || !t.groupId) return;
+      if (categoryFilter && !categoryFilter.includes(t.category)) return;
+      if (!groups.has(t.groupId)) {
+        const cfg = t.ruleConfig || { interval: 1, freq: 'weeks' };
+        const int = Math.max(1, cfg.interval || 1);
+        const abs = Math.abs(parseFloat(t.amount) || 0);
+        let monthly = 0;
+        if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
+        else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+        else if (cfg.freq === 'months') monthly = abs / int;
+        else if (cfg.freq === 'years') monthly = abs / (12 * int);
+        groups.set(t.groupId, {
+          groupId: t.groupId,
+          description: t.description,
+          category: t.category,
+          amount: parseFloat(t.amount) || 0,
+          monthly: t.amount >= 0 ? monthly : -monthly,
+          ruleConfig: cfg,
+          count: 0
+        });
+      }
+      groups.get(t.groupId).count++;
+    });
+    return Array.from(groups.values());
+  }
+
+  getRecurringGroupInfo(groupId) {
+    if (!groupId) return null;
+    const all = this.getRecurringGroups(null);
+    return all.find(g => g.groupId === groupId) || null;
+  }
+
+  /* ============ SCENARIO IMPACT CALCULATOR ============ */
+  // Returns the signed monthly delta this scenario applies to the forecast net.
+  computeScenarioImpact(scenario) {
+    if (!scenario || !scenario.active) return 0;
+    const type = scenario.type || 'custom';
+
+    // Custom & Recurring: raw amount added to net
+    if (type === 'custom' || type === 'recurring') {
+      return parseFloat(scenario.amount) || 0;
+    }
+
+    // Paycheck & Bill: replace an existing recurring group's monthly amount
+    if (type === 'paycheck' || type === 'bill') {
+      const info = this.getRecurringGroupInfo(scenario.groupId);
+      if (!info) return 0;
+      const cfg = info.ruleConfig || { interval: 1, freq: 'weeks' };
+      const int = Math.max(1, cfg.interval || 1);
+      const absNew = Math.abs(parseFloat(scenario.amount) || 0);
+      let monthlyNew = 0;
+      if (cfg.freq === 'days') monthlyNew = (absNew / int) * (365 / 12);
+      else if (cfg.freq === 'weeks') monthlyNew = (absNew / int) * (52 / 12);
+      else if (cfg.freq === 'months') monthlyNew = absNew / int;
+      else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
+      const monthlyOld = Math.abs(info.monthly);
+      const delta = monthlyNew - monthlyOld;
+      // Paycheck raises/lowers income → positive delta raises net.
+      // Bill raises/lowers expense → positive delta on the bill lowers net, so negate.
+      return type === 'paycheck' ? delta : -delta;
+    }
+
+    // Loan: subtract the monthly P&I as an expense
+    if (type === 'loan') {
+      const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
+      if (!loan) return 0;
+      const ov = scenario.loanOverrides || {};
+      const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
+      const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
+      const term = parseFloat(ov.termYears != null ? ov.termYears : loan.termYears) || 30;
+      const pi = this.calculatePI(bal, rate, term);
+      return -pi;
+    }
+
+    return 0;
+  }
+
   /* ============ MUTATIONS ============ */
   updateRowCategory(id, newCat) {
     const tx = this.state.transactions.find(t => t.id === id);
@@ -908,28 +991,46 @@ class MoneyTrackerApp {
 
         if (dayTxs.length > 0) {
           const total = dayTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-          if (total > 0) totalIncome += total; else totalExpense += Math.abs(total);
+
+          // Combined info block: count badge + net amount (matches mobile)
+          const info = document.createElement('div');
+          info.style.display = 'flex';
+          info.style.flexDirection = 'column';
+          info.style.gap = '2px';
+          info.style.alignItems = 'flex-start';
 
           const badge = document.createElement('div');
           badge.className = 'badge badge-vault';
-          badge.style.fontSize = '0.65rem';
-          badge.style.color = total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
-          badge.style.borderColor = total >= 0 ? 'rgba(0, 255, 157, 0.4)' : 'rgba(255, 61, 113, 0.4)';
-          badge.style.background = total >= 0 ? 'rgba(0, 255, 157, 0.12)' : 'rgba(255, 61, 113, 0.12)';
-          badge.innerText = `${total >= 0 ? '+' : ''}$${total.toFixed(2)}`;
-          cell.appendChild(badge);
-          hasActivity = true;
+          badge.style.fontSize = '0.6rem';
+          badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
+          info.appendChild(badge);
 
+          const netEl = document.createElement('div');
+          netEl.style.fontSize = '0.72rem';
+          netEl.style.fontWeight = '600';
+          netEl.style.fontFamily = 'var(--font-mono, monospace)';
+          netEl.style.color = total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+          netEl.innerText = `${total >= 0 ? '+' : ''}$${total.toFixed(2)}`;
+          info.appendChild(netEl);
+
+          cell.appendChild(info);
+          hasActivity = true;
+        }
+        gridFrag.appendChild(cell);
+
+        if (dayTxs.length > 0) {
+          const total = dayTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+          if (total > 0) totalIncome += total; else totalExpense += Math.abs(total);
+          const color = total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
           const mc = document.createElement('div');
           mc.className = 'calendar-mobile-card has-activity';
           mc.addEventListener('click', () => this.openDayDrawer(dateStr));
           mc.innerHTML = `
             <div><div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
             <div style="font-size:0.75rem; color:var(--text-muted);">${dayTxs.length} transaction(s)</div></div>
-            <div style="color:${total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-weight:600;">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</div>`;
+            <div style="color:${color}; font-weight:600;">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</div>`;
           mobileFrag.appendChild(mc);
         }
-        gridFrag.appendChild(cell);
       }
 
       grid.innerHTML = ''; mobile.innerHTML = '';
@@ -1025,21 +1126,29 @@ class MoneyTrackerApp {
     if (simControls) {
       if (loans.length > 0) {
         simControls.innerHTML = `
-          <div style="margin-bottom:1rem;">
-            <label class="stat-label">Loan</label>
-            <select id="simLoanSelect" onchange="app.renderDebtSimulation()">
-              ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} ($${(parseFloat(l.balance)||0).toFixed(2)})</option>`).join('')}
-            </select>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-              <div><label class="stat-label">Extra Payment ($)</label>
-                <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()"></div>
-              <div><label class="stat-label">P&I Payment ($)</label>
-                <input type="number" id="simMinPayment" value="0" readonly style="opacity:0.7;"></div>
-            </div>
-            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
-              Enter P&I portion (exclude escrow) for accurate simulation.
-            </div>
-          </div>`;
+  <div style="margin-bottom:1rem;">
+    <label class="stat-label">Loan</label>
+    <select id="simLoanSelect" onchange="app.onSimLoanChange()">
+      ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} ($${(parseFloat(l.balance)||0).toFixed(2)})</option>`).join('')}
+    </select>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
+      <div><label class="stat-label">Extra Payment ($)</label>
+        <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()"></div>
+      <div>
+        <label class="stat-label" style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+          <span>Principal &amp; Interest ($)</span>
+          <button type="button" class="btn btn-sm"
+                  style="padding:2px 8px; font-size:10px; line-height:1;"
+                  onclick="app.autoCalcPI()"
+                  title="Recalculate from balance, rate & term">Auto</button>
+        </label>
+        <input type="number" id="simMinPayment" value="0" oninput="app.markPIManual()">
+      </div>
+    </div>
+    <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
+      Principal &amp; Interest is your loan payment <em>excluding</em> escrow (taxes &amp; insurance).
+    </div>
+  </div>`;
         this.renderDebtSimulation();
       } else {
         simControls.innerHTML = '';
@@ -1048,44 +1157,111 @@ class MoneyTrackerApp {
   }
 
   renderDebtSimulation() {
-    const loans = this.state.loans || [];
-    if (!loans.length) return;
-    const sel = document.getElementById('simLoanSelect');
-    if (!sel) return;
-    const loan = loans.find(l => l.id === sel.value);
-    if (!loan) return;
+  const loans = this.state.loans || [];
+  if (!loans.length) return;
+  const sel = document.getElementById('simLoanSelect');
+  if (!sel) return;
+  const loan = loans.find(l => l.id === sel.value);
+  if (!loan) return;
 
-    const bal = parseFloat(loan.balance) || 0;
-    const rate = parseFloat(loan.rate) || 0;
-    const minPay = parseFloat(loan.minPayment) || 0;
-    const escrow = parseFloat(loan.escrow) || 0;
-    const pi = Math.max(0, minPay - escrow);
+  const bal    = parseFloat(loan.balance) || 0;
+  const rate   = parseFloat(loan.rate) || 0;
+  const minPay = parseFloat(loan.minPayment) || 0;
+  const escrow = parseFloat(loan.escrow) || 0;
+  const term   = parseFloat(loan.termYears) || 30;
 
-    const piEl = document.getElementById('simMinPayment');
-    if (piEl) piEl.value = pi.toFixed(2);
+  // --- Determine P&I ---
+  // Priority: 1) user manual override, 2) stored loan.piPayment,
+  //           3) minPay - escrow IF it covers interest, 4) auto-calc from terms
+  const monthlyInterest = bal * (rate / 100 / 12);
+  const derivedPI = Math.max(0, minPay - escrow);
+  const autoPI = this.calculatePI(bal, rate, term);
 
-    const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
+  let pi;
+  if (this._piManual) {
+    pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
+  } else if (loan.piPayment != null && loan.piPayment > 0) {
+    pi = parseFloat(loan.piPayment);
+  } else if (derivedPI > monthlyInterest) {
+    pi = derivedPI;
+  } else {
+    pi = autoPI;
+  }
 
-    const result = this.calculatePayoff(bal, rate, pi, extra);
-    const minResult = this.calculatePayoff(bal, rate, pi, 0);
-    const interestSaved = minResult.totalInterest - result.totalInterest;
-    const monthsSaved = minResult.months - result.months;
+  const piEl = document.getElementById('simMinPayment');
+  if (piEl && !this._piManual) piEl.value = pi.toFixed(2);
 
-    const yr = Math.floor(result.months / 12), mo = result.months % 12;
-    const payoff = yr > 0 ? `${yr} yr, ${mo} mo` : `${mo} mo`;
+  const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
 
+  // If payment can't cover interest, show a clear message instead of 999s
+  if (pi + extra <= monthlyInterest) {
     const resEl = document.getElementById('loanSimResults');
     if (resEl) resEl.innerHTML = `
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div><div class="stat-label">Payoff Time</div>
-          <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.1rem;">${payoff}</div>
-          <div class="stat-subtext">${monthsSaved > 0 ? `Save ${monthsSaved} months!` : 'No change'}</div></div>
-        <div><div class="stat-label">Total Interest</div>
-          <div class="stat-value mono" style="color:var(--accent-negative); font-size:1.1rem;">$${result.totalInterest.toFixed(2)}</div>
-          <div class="stat-subtext" style="color:var(--accent-positive);">${interestSaved > 0 ? `Save $${interestSaved.toFixed(2)}!` : 'No change'}</div></div>
+      <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm);">
+        <div class="stat-label" style="color:var(--red);">⚠ Payment too low</div>
+        <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
+          Your P&I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
+          of <span class="mono">$${monthlyInterest.toFixed(2)}</span>. The loan would never pay off.
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">
+          For a ${term}-year payoff at ${rate}%, the P&amp;I should be about
+          <span class="mono" style="color:var(--accent-primary);">$${autoPI.toFixed(2)}</span>.
+          Click <strong>Auto</strong> above to use that value.
+        </div>
       </div>`;
+    this.renderDebtChart([], []);
+    return;
+  }
 
-    this.renderDebtChart(result.schedule, minResult.schedule);
+  const result = this.calculatePayoff(bal, rate, pi, extra);
+  const minResult = this.calculatePayoff(bal, rate, pi, 0);
+  const interestSaved = Math.max(0, minResult.totalInterest - result.totalInterest);
+  const monthsSaved = Math.max(0, minResult.months - result.months);
+
+  const yr = Math.floor(result.months / 12), mo = result.months % 12;
+  const payoff = yr > 0 ? `${yr} yr, ${mo} mo` : `${mo} mo`;
+
+  const resEl = document.getElementById('loanSimResults');
+  if (resEl) resEl.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+      <div><div class="stat-label">Payoff Time</div>
+        <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.1rem;">${payoff}</div>
+        <div class="stat-subtext">${monthsSaved > 0 ? `Save ${monthsSaved} months!` : 'No change'}</div></div>
+      <div><div class="stat-label">Total Interest</div>
+        <div class="stat-value mono" style="color:var(--accent-negative); font-size:1.1rem;">$${result.totalInterest.toFixed(2)}</div>
+        <div class="stat-subtext" style="color:var(--accent-positive);">${interestSaved > 0 ? `Save $${interestSaved.toFixed(2)}!` : 'No change'}</div></div>
+    </div>`;
+
+  this.renderDebtChart(result.schedule, minResult.schedule);
+  }
+
+  // Standard amortized monthly payment formula: M = P·r(1+r)^n / ((1+r)^n − 1)
+  calculatePI(balance, annualRate, termYears) {
+    const r = (annualRate / 100) / 12;
+    const n = termYears * 12;
+    if (balance <= 0 || n <= 0) return 0;
+    if (r === 0) return balance / n;
+    const factor = Math.pow(1 + r, n);
+    return balance * r * factor / (factor - 1);
+  }
+
+  // Called when the user switches to a different loan in the dropdown
+  onSimLoanChange() {
+    this._piManual = false;
+    this.renderDebtSimulation();
+  }
+
+  // Called when the user clicks the "Auto" button
+  autoCalcPI() {
+    this._piManual = false;
+    this.renderDebtSimulation();
+    this.showToast('P&I recalculated from loan terms');
+  }
+
+  // Called when the user edits the P&I field by hand
+  markPIManual() {
+    this._piManual = true;
+    this.debouncedDebtSim();
   }
 
   calculatePayoff(principal, annualRate, minPayment, extraPayment) {
@@ -1153,89 +1329,91 @@ class MoneyTrackerApp {
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
-    const get = (id, def) => parseFloat(document.getElementById(id)?.value) || def;
-    const hourly = get('payHourlyRate', 20);
-    const hours = get('payHours', 40);
-    const weeks = get('payWeeks', 52);
-    const benefits = get('payBenefits', 0);
-    const fedRate = get('payFederalRate', 12);
-    const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
-    const period = document.getElementById('payPeriod')?.value || 'yearly';
+  const get = (id, def) => parseFloat(document.getElementById(id)?.value) || def;
+  const hourly = get('payHourlyRate', 20);
+  const hours = get('payHours', 40);
+  const weeks = get('payWeeks', 52);
+  const benefits = get('payBenefits', 0);
+  const fedRate = get('payFederalRate', 12);
+  const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
+  const period = document.getElementById('payPeriod')?.value || 'yearly';
 
-    const weeklyGross = hourly * hours;
-    const annualGross = weeklyGross * weeks;
+  const weeklyGross = hourly * hours;
+  const annualGross = weeklyGross * weeks;
 
-    const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
-    let stateTax = 0;
-    let effectiveStateRate = 0;
-    if (stateData) {
-      stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
-      effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
+  const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
+  let stateTax = 0;
+  let effectiveStateRate = 0;
+  if (stateData) {
+    stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
+    effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
+  }
+
+  const fedTax = annualGross * (fedRate / 100);
+  const ss = annualGross * 0.062;
+  const med = annualGross * 0.0145;
+  const totalTax = fedTax + stateTax + ss + med;
+  const annualBenefits = benefits * 12;
+  const annualNet = annualGross - totalTax - annualBenefits;
+
+  // Period divisors — no extra storage, just divide
+  const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
+  const div = divisors[period] || 1;
+  const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
+
+  const pGross = annualGross / div;
+  const pNet = annualNet / div;
+  const pFed = fedTax / div;
+  const pState = stateTax / div;
+  const pSS = ss / div;
+  const pMed = med / div;
+  const pBenefits = annualBenefits / div;
+
+  // Bracket breakdown (shows per-period amounts)
+  let bracketBreakdown = '';
+  if (stateData && stateData.brackets.length > 1) {
+    const rows = [];
+    for (const b of stateData.brackets) {
+      if (annualGross <= b.min) break;
+      const taxable = Math.min(annualGross, b.max) - b.min;
+      if (taxable <= 0) continue;
+      const taxAtBracket = taxable * (b.rate / 100);
+      const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
+      rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
+        <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
+        <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
+      </div>`);
     }
-
-    const fedTax = annualGross * (fedRate / 100);
-    const ss = annualGross * 0.062;
-    const med = annualGross * 0.0145;
-    const totalTax = fedTax + stateTax + ss + med;
-    const annualBenefits = benefits * 12;
-    const annualNet = annualGross - totalTax - annualBenefits;
-
-    const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
-    const div = divisors[period] || 1;
-    const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
-
-    const pGross = annualGross / div;
-    const pNet = annualNet / div;
-    const pFed = fedTax / div;
-    const pState = stateTax / div;
-    const pSS = ss / div;
-    const pMed = med / div;
-    const pBenefits = annualBenefits / div;
-
-    let bracketBreakdown = '';
-    if (stateData && stateData.brackets.length > 1) {
-      const rows = [];
-      for (const b of stateData.brackets) {
-        if (annualGross <= b.min) break;
-        const taxable = Math.min(annualGross, b.max) - b.min;
-        if (taxable <= 0) continue;
-        const taxAtBracket = taxable * (b.rate / 100);
-        const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
-        rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
-          <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
-          <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
-        </div>`);
-      }
-      if (rows.length > 0) {
-        bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
-          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
-          ${rows.join('')}
-        </div>`;
-      }
+    if (rows.length > 0) {
+      bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
+        ${rows.join('')}
+      </div>`;
     }
+  }
 
-    const el = document.getElementById('paycheckResults');
-    if (!el) return;
-    el.innerHTML = `
-      <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
-        <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
-        <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
+  const el = document.getElementById('paycheckResults');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
+      <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
+    </div>
+    <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
+      <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
+    </div>
+    <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
+      <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
+        <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
+        <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
+        <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
+        <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
+        <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
       </div>
-      <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
-        <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
-        <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
-      </div>
-      <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
-        <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
-          <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
-          <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
-          <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
-          <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
-          <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
-        </div>
-        ${bracketBreakdown}
-      </details>`;
+      ${bracketBreakdown}
+    </details>`;
   }
 
   /* ============ TAX BRACKET MODAL ============ */
@@ -1262,17 +1440,19 @@ class MoneyTrackerApp {
               <button class="btn btn-sm btn-primary" data-action="newTaxState">+ New State</button>
             </div>
           </div>
+
           <div id="tbEditor"></div>
+
           <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
-              <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
-            </div>
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn" data-action="closeModal">Cancel</button>
-              <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
-            </div>
-          </div>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
+    <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
+  </div>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn" data-action="closeModal">Cancel</button>
+    <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
+  </div>
+</div>
         </div>
       </div>`);
     if (current) this.loadBracketEditor(current.code);
@@ -1283,6 +1463,7 @@ class MoneyTrackerApp {
     const editor = document.getElementById('tbEditor');
     if (!editor) return;
     if (!state) { editor.innerHTML = ''; return; }
+
     this.editingStateCode = code;
 
     const rowsHtml = state.brackets.map((b, i) => `
@@ -1344,6 +1525,7 @@ class MoneyTrackerApp {
 
     if (brackets.length === 0) { alert('Add at least one bracket.'); return; }
 
+    // Find and replace, or add
     const idx = (this.state.taxStates || []).findIndex(s => s.code === this.editingStateCode);
     const entry = { code, name, brackets };
     if (idx >= 0) this.state.taxStates[idx] = entry;
@@ -1371,17 +1553,17 @@ class MoneyTrackerApp {
   }
 
   resetTaxBrackets() {
-    if (!confirm(
-      'Reset to default state brackets?\n\n' +
-      'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
-      'Any custom states you have added will be removed.'
-    )) return;
-    this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-    this.state.selectedState = 'OK';
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent('paycheck');
-    this.showToast('Reset to default state brackets');
+  if (!confirm(
+    'Reset to default state brackets?\n\n' +
+    'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
+    'Any custom states you have added will be removed.'
+  )) return;
+  this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+  this.state.selectedState = 'OK';
+  this.saveState();
+  this.closeModal();
+  this.renderTabContent('paycheck');
+  this.showToast('Reset to default state brackets');
   }
 
   newTaxState() {
@@ -1408,68 +1590,6 @@ class MoneyTrackerApp {
       </div>`;
   }
 
-  /* ============ SCENARIO IMPACT CALCULATION ============ */
-  normalizeToMonthly(amount, cfg) {
-    if (!cfg) return amount;
-    const freq = cfg.freq || 'months';
-    const interval = Math.max(1, cfg.interval || 1);
-    if (freq === 'days') return (amount / interval) * (365 / 12);
-    if (freq === 'weeks') return (amount / interval) * (52 / 12);
-    if (freq === 'months') return amount / interval;
-    if (freq === 'years') return amount / (12 * interval);
-    return amount;
-  }
-
-  getScenarioMonthlyImpact(scenario) {
-    const type = scenario.type || 'adjustment';
-
-    if (type === 'adjustment') {
-      const net = parseFloat(scenario.amount) || 0;
-      return { income: net > 0 ? net : 0, expense: net < 0 ? -net : 0, net };
-    }
-
-    if (type === 'paycheck' || type === 'bill') {
-      const original = this.state.transactions.find(t => t.id === scenario.targetTxId);
-      if (!original) return { income: 0, expense: 0, net: 0 };
-      const origAmt = parseFloat(original.amount) || 0;
-      const newAmt = parseFloat(scenario.newAmount) || 0;
-      const delta = newAmt - origAmt;
-      const monthlyDelta = this.normalizeToMonthly(delta, original.ruleConfig);
-      return { income: monthlyDelta > 0 ? monthlyDelta : 0, expense: monthlyDelta < 0 ? -monthlyDelta : 0, net: monthlyDelta };
-    }
-
-    if (type === 'loan') {
-      const loan = this.state.loans.find(l => l.id === scenario.loanId);
-      if (!loan) return { income: 0, expense: 0, net: 0 };
-      const currentMin = parseFloat(loan.minPayment) || 0;
-      const newMin = scenario.loanOverrides?.minPayment !== undefined
-        ? parseFloat(scenario.loanOverrides.minPayment) : currentMin;
-      const extra = parseFloat(scenario.loanOverrides?.extraPayment) || 0;
-      const monthlyDelta = (newMin - currentMin) + extra;
-      // Positive monthlyDelta means MORE expense → net decreases
-      return { income: 0, expense: monthlyDelta, net: -monthlyDelta };
-    }
-
-    if (type === 'recurring') {
-      const amt = parseFloat(scenario.amount) || 0;
-      const monthlyAmt = this.normalizeToMonthly(amt, { freq: scenario.freq || 'months', interval: scenario.interval || 1 });
-      return { income: monthlyAmt > 0 ? monthlyAmt : 0, expense: monthlyAmt < 0 ? -monthlyAmt : 0, net: monthlyAmt };
-    }
-
-    return { income: 0, expense: 0, net: 0 };
-  }
-
-  getTotalScenarioImpact() {
-    let total = 0;
-    (this.state.scenarios || []).forEach(s => {
-      if (s.active) {
-        const impact = this.getScenarioMonthlyImpact(s);
-        total += impact.net;
-      }
-    });
-    return total;
-  }
-
   /* ============ FORECASTER ============ */
   syncForecaster() {
     const estimated = this.state.transactions.filter(t => t.status === 'estimated');
@@ -1477,15 +1597,15 @@ class MoneyTrackerApp {
     estimated.forEach(t => {
       const abs = Math.abs(t.amount || 0);
       const cfg = t.ruleConfig || { interval: 1, freq: 'weeks' };
-      const monthly = Math.abs(this.normalizeToMonthly(abs, cfg));
+      const int = Math.max(1, cfg.interval || 1);
+      let monthly = 0;
+      if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
+      else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+      else if (cfg.freq === 'months') monthly = abs / int;
+      else if (cfg.freq === 'years') monthly = abs / (12 * int);
       if (t.amount > 0 || t.category === 'Income' || t.flow === 'Income') inc += monthly;
       else fix += monthly;
     });
-
-    // Include loan min payments as recurring fixed expenses
-    const loanMin = (this.state.loans || []).reduce((s, l) => s + (parseFloat(l.minPayment) || 0), 0);
-    fix += loanMin;
-
     const incEl = document.getElementById('fcAvgIncome');
     const fixEl = document.getElementById('fcAvgFixed');
     if (incEl) incEl.value = inc.toFixed(2);
@@ -1498,7 +1618,13 @@ class MoneyTrackerApp {
     const avgInc = gi('fcAvgIncome');
     const avgFix = gi('fcAvgFixed');
     const avgVar = gi('fcAvgVariable');
-    const scenSum = this.getTotalScenarioImpact();
+
+    // Sum the monthly impact of every active scenario, regardless of type
+    let scenSum = 0;
+    (this.state.scenarios || []).forEach(s => {
+      scenSum += this.computeScenarioImpact(s);
+    });
+
     const netFull = avgInc - avgFix - avgVar + scenSum;
     const netBills = avgInc - avgFix + scenSum;
 
@@ -1517,32 +1643,55 @@ class MoneyTrackerApp {
 
     const sList = document.getElementById('scenarioList');
     if (sList) {
-      if ((this.state.scenarios || []).length === 0) {
-        sList.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:0.5rem;">No scenarios yet. Click "+ Add Scenario" to model a what-if.</div>';
-      } else {
-        sList.innerHTML = this.state.scenarios.map(s => {
-          const impact = this.getScenarioMonthlyImpact(s);
-          const typeLabel = { adjustment: 'Adjustment', paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring' }[s.type || 'adjustment'];
-          const typeColor = { adjustment: 'var(--text-muted)', paycheck: 'var(--accent-positive)', bill: 'var(--accent-negative)', loan: 'var(--accent-pending)', recurring: 'var(--accent-primary)' }[s.type || 'adjustment'];
+      const typeIcons = { paycheck: '💰', bill: '📄', loan: '🏦', recurring: '🔁', custom: '⚙️' };
+      const typeLabels = { paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring', custom: 'Custom' };
 
-          return `
-            <div class="scenario-item ${s.active ? '' : 'disabled'}">
-              <div style="min-width:0;">
-                <div style="display:flex; gap:0.4rem; align-items:center;">
-                  <span style="font-size:0.65rem; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; color:${typeColor}; background:var(--bg-elevated); padding:0.1rem 0.4rem; border-radius:4px; border:1px solid var(--border-subtle);">${typeLabel}</span>
-                  <span style="font-weight:600; font-size:0.85rem;">${this.escapeHtml(s.name)}</span>
-                </div>
-                <div class="mono" style="font-size:0.8rem; margin-top:0.25rem; color:${impact.net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}">
-                  ${impact.net >= 0 ? '+' : ''}$${impact.net.toFixed(2)}/mo
-                </div>
-              </div>
-              <div style="display:flex; gap:0.35rem; align-items:center; flex-shrink:0;">
-                <button class="scenario-toggle-btn ${s.active ? 'active' : ''}" data-action="toggleScenario" data-scenario-id="${s.id}">${s.active ? 'ON' : 'OFF'}</button>
-                <button class="btn btn-sm" data-action="openEditScenarioModal" data-scenario-id="${s.id}">⚙️</button>
-              </div>
-            </div>`;
-        }).join('');
-      }
+      sList.innerHTML = (this.state.scenarios || []).map(s => {
+        const type = s.type || 'custom';
+        const icon = typeIcons[type] || '⚙️';
+        const typeLabel = typeLabels[type] || 'Scenario';
+
+        // Compute impact for display
+        const impact = this.computeScenarioImpact({ ...s, active: true });
+        const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+        const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
+
+        // Build a subtitle per scenario type
+        let subtitle = '';
+        if (type === 'paycheck' || type === 'bill') {
+          const g = this.getRecurringGroupInfo(s.groupId);
+          if (g) subtitle = `${g.description} → $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)}`;
+          else subtitle = 'Missing recurring item';
+        } else if (type === 'loan') {
+          const l = (this.state.loans || []).find(x => x.id === s.loanId);
+          const ov = s.loanOverrides || {};
+          const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
+          const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
+          const trm = ov.termYears != null ? ov.termYears : (l ? l.termYears : 30);
+          subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm}yr`;
+        } else if (type === 'recurring') {
+          subtitle = 'New recurring item';
+        } else {
+          subtitle = 'Freeform adjustment';
+        }
+
+        return `
+        <div class="scenario-item ${s.active ? '' : 'disabled'}">
+          <div style="min-width:0; flex:1;">
+            <div style="display:flex; align-items:center; gap:6px;">
+              <span style="font-size:0.9rem;">${icon}</span>
+              <span class="badge" style="background:var(--bg-base); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
+            </div>
+            <div style="font-weight:600; font-size:0.85rem; margin-top:4px;">${this.escapeHtml(s.name)}</div>
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(subtitle)}</div>
+            <div class="mono" style="font-size:0.8rem; color:${impactColor}; margin-top:4px;">${impactStr}</div>
+          </div>
+          <div style="display:flex; gap:0.35rem; align-items:center; flex-shrink:0;">
+            <button class="scenario-toggle-btn ${s.active ? 'active' : ''}" data-action="toggleScenario" data-scenario-id="${s.id}">${s.active ? 'ON' : 'OFF'}</button>
+            <button class="btn btn-sm" data-action="openEditScenarioModal" data-scenario-id="${s.id}">⚙️</button>
+          </div>
+        </div>`;
+      }).join('');
     }
   }
 
@@ -1550,237 +1699,6 @@ class MoneyTrackerApp {
     const id = btn.dataset.scenarioId;
     const sc = this.state.scenarios.find(s => s.id === id);
     if (sc) { sc.active = !sc.active; this.saveState(); this.renderForecaster(); }
-  }
-
-  /* ============ SCENARIO MODAL (ADD/EDIT) ============ */
-  openAddScenarioModal() {
-    this.editingScenarioId = null;
-    this.buildScenarioModal(null);
-  }
-
-  openEditScenarioModal(btn) {
-    const id = btn.dataset.scenarioId;
-    this.editingScenarioId = id;
-    const sc = this.state.scenarios.find(s => s.id === id);
-    if (!sc) return;
-    this.buildScenarioModal(sc);
-  }
-
-  buildScenarioModal(existing) {
-    const isEdit = !!existing;
-    const type = existing?.type || 'adjustment';
-
-    const recurringIncomes = this.state.transactions.filter(t =>
-      t.status === 'estimated' && (t.category === 'Income' || t.flow === 'Income')
-    );
-    const recurringBills = this.state.transactions.filter(t =>
-      t.status === 'estimated' && t.category === 'Bills and Utilities'
-    );
-    const loans = this.state.loans || [];
-
-    const incomeOpts = recurringIncomes.length
-      ? recurringIncomes.map(t => `<option value="${t.id}" ${existing?.targetTxId === t.id ? 'selected' : ''}>${this.escapeHtml(t.description)} — $${(parseFloat(t.amount)||0).toFixed(2)} (${t.ruleConfig?.freq || 'mo'})</option>`).join('')
-      : '<option value="">No recurring income found</option>';
-    const billOpts = recurringBills.length
-      ? recurringBills.map(t => `<option value="${t.id}" ${existing?.targetTxId === t.id ? 'selected' : ''}>${this.escapeHtml(t.description)} — $${(parseFloat(t.amount)||0).toFixed(2)} (${t.ruleConfig?.freq || 'mo'})</option>`).join('')
-      : '<option value="">No recurring bills found</option>';
-    const loanOpts = loans.length
-      ? loans.map(l => `<option value="${l.id}" ${existing?.loanId === l.id ? 'selected' : ''}>${this.escapeHtml(l.name)} — $${(parseFloat(l.balance)||0).toFixed(2)} (min $${(parseFloat(l.minPayment)||0).toFixed(2)})</option>`).join('')
-      : '<option value="">No loans found</option>';
-
-    this._scenarioOpts = { incomeOpts, billOpts, loanOpts, recurringIncomes, recurringBills, loans };
-
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal" style="max-width:520px;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h2 style="font-size:1.2rem; font-weight:700;">${isEdit ? '⚙ Edit Scenario' : '+ Add Scenario'}</h2>
-            <button class="btn btn-sm" data-action="closeModal">Close</button>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:0.85rem;">
-            <div>
-              <label class="stat-label">Scenario Type</label>
-              <select id="scenarioType" ${isEdit ? 'disabled' : ''}>
-                <option value="adjustment" ${type === 'adjustment' ? 'selected' : ''}>Simple Adjustment</option>
-                <option value="paycheck" ${type === 'paycheck' ? 'selected' : ''}>Paycheck (adjust recurring income)</option>
-                <option value="bill" ${type === 'bill' ? 'selected' : ''}>Bill (adjust recurring bill)</option>
-                <option value="loan" ${type === 'loan' ? 'selected' : ''}>Loan (edit loan terms)</option>
-                <option value="recurring" ${type === 'recurring' ? 'selected' : ''}>Recurring (add new recurring)</option>
-              </select>
-              ${isEdit ? '<div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.25rem;">Type cannot be changed. Delete and re-add to change type.</div>' : ''}
-            </div>
-            <div>
-              <label class="stat-label">Name</label>
-              <input type="text" id="scenarioNameInput" value="${isEdit ? this.escapeHtml(existing.name) : ''}" placeholder="e.g. Raise at work, refinance house">
-            </div>
-            <div id="scenarioTypeFields"></div>
-          </div>
-          <div style="display:flex; justify-content:${isEdit ? 'space-between' : 'flex-end'}; gap:0.5rem; margin-top:1.5rem;">
-            ${isEdit ? '<button class="btn btn-danger btn-sm" data-action="deleteScenario">Delete</button>' : ''}
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn" data-action="closeModal">Cancel</button>
-              <button class="btn btn-primary" data-action="saveScenario">${isEdit ? 'Save Changes' : 'Save Scenario'}</button>
-            </div>
-          </div>
-        </div>
-      </div>`);
-    this.renderScenarioTypeFields(type, existing);
-  }
-
-  renderScenarioTypeFields(type, existing = null) {
-    const c = document.getElementById('scenarioTypeFields');
-    if (!c) return;
-    const opts = this._scenarioOpts || {};
-
-    if (type === 'adjustment') {
-      c.innerHTML = `
-        <label class="stat-label">Monthly Impact ($)</label>
-        <input type="number" step="0.01" id="scenarioAmountInput" value="${existing?.amount !== undefined ? existing.amount : ''}" placeholder="e.g. -150.00 or 250.00">
-        <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">Negative = expense, Positive = income.</div>`;
-    } else if (type === 'paycheck') {
-      if (!opts.recurringIncomes?.length) {
-        c.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem; background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">No recurring income found. Add a recurring income in the Calendar tab first.</div>`;
-        return;
-      }
-      c.innerHTML = `
-        <label class="stat-label">Recurring Income to Adjust</label>
-        <select id="scenarioTargetTx" style="margin-bottom:0.5rem;">${opts.incomeOpts}</select>
-        <label class="stat-label">New Amount ($)</label>
-        <input type="number" step="0.01" id="scenarioNewAmount" value="${existing?.newAmount !== undefined ? existing.newAmount : ''}" placeholder="e.g. 2000.00">`;
-    } else if (type === 'bill') {
-      if (!opts.recurringBills?.length) {
-        c.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem; background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">No recurring bills found. Add a recurring bill in the Calendar tab first.</div>`;
-        return;
-      }
-      c.innerHTML = `
-        <label class="stat-label">Recurring Bill to Adjust</label>
-        <select id="scenarioTargetTx" style="margin-bottom:0.5rem;">${opts.billOpts}</select>
-        <label class="stat-label">New Amount ($)</label>
-        <input type="number" step="0.01" id="scenarioNewAmount" value="${existing?.newAmount !== undefined ? existing.newAmount : ''}" placeholder="e.g. -150.00">
-        <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">Enter new bill amount (negative for expense).</div>`;
-    } else if (type === 'loan') {
-      if (!opts.loans?.length) {
-        c.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem; background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">No loans found. Add a loan in the Debt Payoff tab first.</div>`;
-        return;
-      }
-      const lo = existing?.loanOverrides || {};
-      c.innerHTML = `
-        <label class="stat-label">Loan</label>
-        <select id="scenarioLoanId" style="margin-bottom:0.5rem;">${opts.loanOpts}</select>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
-          <div>
-            <label class="stat-label">New Rate (%)</label>
-            <input type="number" step="0.01" id="scenarioLoanRate" value="${lo.rate !== undefined ? lo.rate : ''}" placeholder="current">
-          </div>
-          <div>
-            <label class="stat-label">New Min Payment ($)</label>
-            <input type="number" step="0.01" id="scenarioLoanMinPayment" value="${lo.minPayment !== undefined ? lo.minPayment : ''}" placeholder="current">
-          </div>
-        </div>
-        <div style="margin-top:0.5rem;">
-          <label class="stat-label">Extra Monthly Payment ($)</label>
-          <input type="number" step="0.01" id="scenarioLoanExtra" value="${lo.extraPayment !== undefined ? lo.extraPayment : ''}" placeholder="0.00">
-          <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">Additional principal beyond the min payment.</div>
-        </div>`;
-    } else if (type === 'recurring') {
-      c.innerHTML = `
-        <label class="stat-label">Amount ($)</label>
-        <input type="number" step="0.01" id="scenarioRecurringAmount" value="${existing?.amount !== undefined ? existing.amount : ''}" placeholder="e.g. -50.00 or 300.00">
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-          <div>
-            <label class="stat-label">Interval</label>
-            <input type="number" id="scenarioRecurringInterval" value="${existing?.interval || 1}" min="1">
-          </div>
-          <div>
-            <label class="stat-label">Frequency</label>
-            <select id="scenarioRecurringFreq">
-              <option value="weeks" ${existing?.freq === 'weeks' || !existing?.freq ? 'selected' : ''}>Weeks</option>
-              <option value="days" ${existing?.freq === 'days' ? 'selected' : ''}>Days</option>
-              <option value="months" ${existing?.freq === 'months' ? 'selected' : ''}>Months</option>
-              <option value="years" ${existing?.freq === 'years' ? 'selected' : ''}>Years</option>
-            </select>
-          </div>
-        </div>`;
-    }
-  }
-
-  saveScenario() {
-    const type = document.getElementById('scenarioType').value;
-    const name = document.getElementById('scenarioNameInput').value.trim();
-    if (!name) { alert('Enter a name.'); return; }
-
-    const scenario = { id: this.editingScenarioId || `sc_${Date.now()}`, type, name, active: true };
-
-    // Preserve active state if editing
-    if (this.editingScenarioId) {
-      const existing = this.state.scenarios.find(s => s.id === this.editingScenarioId);
-      if (existing) scenario.active = existing.active;
-    }
-
-    if (type === 'adjustment') {
-      const amt = parseFloat(document.getElementById('scenarioAmountInput').value);
-      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-      scenario.amount = amt;
-    } else if (type === 'paycheck' || type === 'bill') {
-      const txId = document.getElementById('scenarioTargetTx').value;
-      const newAmt = parseFloat(document.getElementById('scenarioNewAmount').value);
-      if (!txId) { alert('Select a recurring transaction.'); return; }
-      if (isNaN(newAmt)) { alert('Enter a new amount.'); return; }
-      scenario.targetTxId = txId;
-      scenario.newAmount = newAmt;
-    } else if (type === 'loan') {
-      const loanId = document.getElementById('scenarioLoanId').value;
-      if (!loanId) { alert('Select a loan.'); return; }
-      scenario.loanId = loanId;
-      const rate = document.getElementById('scenarioLoanRate').value;
-      const min = document.getElementById('scenarioLoanMinPayment').value;
-      const extra = document.getElementById('scenarioLoanExtra').value;
-      scenario.loanOverrides = {};
-      if (rate !== '') scenario.loanOverrides.rate = parseFloat(rate);
-      if (min !== '') scenario.loanOverrides.minPayment = parseFloat(min);
-      if (extra !== '') scenario.loanOverrides.extraPayment = parseFloat(extra) || 0;
-    } else if (type === 'recurring') {
-      const amt = parseFloat(document.getElementById('scenarioRecurringAmount').value);
-      const interval = parseInt(document.getElementById('scenarioRecurringInterval').value) || 1;
-      const freq = document.getElementById('scenarioRecurringFreq').value;
-      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-      scenario.amount = amt;
-      scenario.interval = interval;
-      scenario.freq = freq;
-    }
-
-    if (!this.state.scenarios) this.state.scenarios = [];
-    if (this.editingScenarioId) {
-      const idx = this.state.scenarios.findIndex(s => s.id === this.editingScenarioId);
-      if (idx >= 0) this.state.scenarios[idx] = scenario;
-    } else {
-      this.state.scenarios.push(scenario);
-    }
-
-    this.saveState();
-    this.closeModal();
-    this.editingScenarioId = null;
-    this.renderForecaster();
-    this.showToast(this.editingScenarioId ? 'Scenario updated' : `Added ${type} scenario`);
-  }
-
-  deleteScenario(btn) {
-    // If called from edit modal or from scenario list, need the ID
-    let id = this.editingScenarioId;
-    if (!id && btn) id = btn.dataset.scenarioId;
-    if (!id) {
-      // Fallback: read from hidden edit input if exists
-      const hidden = document.getElementById('editScenarioId');
-      if (hidden) id = hidden.value;
-    }
-    if (!id) return;
-    if (!confirm('Delete this scenario?')) return;
-    this.state.scenarios = this.state.scenarios.filter(s => s.id !== id);
-    this.saveState();
-    this.closeModal();
-    this.editingScenarioId = null;
-    this.renderForecaster();
-    this.showToast('Scenario deleted');
   }
 
   /* ============ APY ============ */
@@ -2098,7 +2016,10 @@ class MoneyTrackerApp {
 
     const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
     const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
-    const scenSum = this.getTotalScenarioImpact();
+    let scenSum = 0;
+    (this.state.scenarios || []).forEach(s => {
+      scenSum += this.computeScenarioImpact(s);
+    });
     const netFull = avgInc - avgFix - avgVar + scenSum;
     const netBills = avgInc - avgFix + scenSum;
     const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
@@ -2635,6 +2556,338 @@ class MoneyTrackerApp {
     this.saveState();
   }
 
+  /* ============ SCENARIO MODALS ============ */
+  openAddScenarioModal() {
+    const typeOpts = `
+      <option value="custom">Custom — freeform monthly amount</option>
+      <option value="paycheck">Paycheck — adjust a recurring income</option>
+      <option value="bill">Bill — adjust a recurring bill</option>
+      <option value="loan">Loan — add/modify a debt payment</option>
+      <option value="recurring">Recurring — add a new recurring item</option>
+    `;
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:560px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h2 style="font-size:1.2rem; font-weight:700;">+ Add Scenario</h2>
+            <button class="btn btn-sm" data-action="closeModal">Close</button>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:0.85rem;">
+            <div>
+              <label class="stat-label">Scenario Type</label>
+              <select id="scenarioTypeInput" onchange="app.onScenarioTypeChange()">${typeOpts}</select>
+            </div>
+            <div>
+              <label class="stat-label">Name</label>
+              <input type="text" id="scenarioNameInput" placeholder="e.g. Raise, Cancel Netflix, New car">
+            </div>
+            <div id="scenarioTypeFields"></div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+            <button class="btn" data-action="closeModal">Cancel</button>
+            <button class="btn btn-primary" data-action="saveScenario">Save</button>
+          </div>
+        </div>
+      </div>`);
+    this.onScenarioTypeChange();
+  }
+
+  onScenarioTypeChange() {
+    const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
+    const el = document.getElementById('scenarioTypeFields');
+    if (!el) return;
+
+    if (type === 'custom' || type === 'recurring') {
+      el.innerHTML = `
+        <label class="stat-label">Monthly Impact ($) — positive for income, negative for expense</label>
+        <input type="number" step="0.01" id="scenarioAmountInput" value="0">
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+          ${type === 'recurring' ? 'Adds a new recurring line to the projection.' : 'Freely adds or subtracts from monthly net.'}
+        </div>`;
+      return;
+    }
+
+    if (type === 'paycheck') {
+      const groups = this.getRecurringGroups(['Income']);
+      if (!groups.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+          No recurring income items found. Add one on the Calendar tab first.
+        </div>`;
+        return;
+      }
+      el.innerHTML = `
+        <div>
+          <label class="stat-label">Recurring Income</label>
+          <select id="scenarioGroupInput">
+            ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-top:0.5rem;">
+          <label class="stat-label">New Amount ($)</label>
+          <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
+        </div>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+          The projection will use the new amount instead of the original for this income.
+        </div>`;
+      return;
+    }
+
+    if (type === 'bill') {
+      const groups = this.getRecurringGroups(['Bills and Utilities', 'Subscriptions']);
+      if (!groups.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+          No recurring bills found. Add one on the Calendar tab first.
+        </div>`;
+        return;
+      }
+      el.innerHTML = `
+        <div>
+          <label class="stat-label">Recurring Bill</label>
+          <select id="scenarioGroupInput">
+            ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)} (${this.escapeHtml(g.category)})</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-top:0.5rem;">
+          <label class="stat-label">New Amount ($)</label>
+          <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
+        </div>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+          Only the projection changes — the original bill on the Calendar stays the same.
+        </div>`;
+      return;
+    }
+
+    if (type === 'loan') {
+      const loans = this.state.loans || [];
+      if (!loans.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+          No loans found. Add one on the Debts tab first.
+        </div>`;
+        return;
+      }
+      const l = loans[0];
+      el.innerHTML = `
+        <div>
+          <label class="stat-label">Loan</label>
+          <select id="scenarioLoanInput" onchange="app.onScenarioLoanChange()">
+            ${loans.map(x => `<option value="${x.id}">${this.escapeHtml(x.name)} — $${(parseFloat(x.balance)||0).toFixed(2)}</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-top:0.5rem;">
+          <label class="stat-label">Balance ($)</label>
+          <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance)||0).toFixed(2)}">
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
+          <div>
+            <label class="stat-label">Rate (%)</label>
+            <input type="number" step="0.01" id="scenarioLoanRate" value="${l.rate}">
+          </div>
+          <div>
+            <label class="stat-label">Term (Years)</label>
+            <input type="number" id="scenarioLoanTerm" value="${l.termYears || 30}">
+          </div>
+        </div>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+          The monthly principal &amp; interest payment is subtracted as an expense in the projection.
+        </div>`;
+      return;
+    }
+  }
+
+  onScenarioLoanChange() {
+    const id = document.getElementById('scenarioLoanInput')?.value;
+    const l = (this.state.loans || []).find(x => x.id === id);
+    if (!l) return;
+    const balEl = document.getElementById('scenarioLoanBalance');
+    const rateEl = document.getElementById('scenarioLoanRate');
+    const termEl = document.getElementById('scenarioLoanTerm');
+    if (balEl) balEl.value = (parseFloat(l.balance) || 0).toFixed(2);
+    if (rateEl) rateEl.value = l.rate;
+    if (termEl) termEl.value = l.termYears || 30;
+  }
+
+  saveScenario() {
+    const type = document.getElementById('scenarioTypeInput').value;
+    const rawName = document.getElementById('scenarioNameInput').value.trim();
+    const scenario = {
+      id: `sc_${Date.now()}`,
+      type,
+      name: rawName || 'Unnamed Scenario',
+      active: true,
+      amount: 0,
+      groupId: null,
+      loanId: null,
+      loanOverrides: null
+    };
+
+    if (type === 'custom' || type === 'recurring') {
+      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+      scenario.amount = amt;
+      if (!rawName) scenario.name = type === 'recurring' ? 'New recurring item' : 'Custom scenario';
+    } else if (type === 'paycheck' || type === 'bill') {
+      const groupId = document.getElementById('scenarioGroupInput')?.value;
+      if (!groupId) { alert('Select a recurring item.'); return; }
+      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+      const info = this.getRecurringGroupInfo(groupId);
+      scenario.groupId = groupId;
+      scenario.amount = Math.abs(amt);
+      if (!rawName) {
+        scenario.name = `${type === 'paycheck' ? 'Paycheck' : 'Bill'}: ${info ? info.description : 'adjustment'}`;
+      }
+    } else if (type === 'loan') {
+      const loanId = document.getElementById('scenarioLoanInput')?.value;
+      if (!loanId) { alert('Select a loan.'); return; }
+      const loan = (this.state.loans || []).find(l => l.id === loanId);
+      scenario.loanId = loanId;
+      scenario.loanOverrides = {
+        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+        termYears: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30
+      };
+      const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, scenario.loanOverrides.termYears);
+      scenario.amount = -pi;
+      if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
+    }
+
+    this.state.scenarios.push(scenario);
+    this.saveState();
+    this.closeModal();
+    this.renderForecaster();
+    this.showToast('Scenario added');
+  }
+
+  openEditScenarioModal(btn) {
+    const s = this.state.scenarios.find(x => x.id === btn.dataset.scenarioId);
+    if (!s) return;
+    const type = s.type || 'custom';
+    const typeOpts = `
+      <option value="custom" ${type === 'custom' ? 'selected' : ''}>Custom — freeform monthly amount</option>
+      <option value="paycheck" ${type === 'paycheck' ? 'selected' : ''}>Paycheck — adjust a recurring income</option>
+      <option value="bill" ${type === 'bill' ? 'selected' : ''}>Bill — adjust a recurring bill</option>
+      <option value="loan" ${type === 'loan' ? 'selected' : ''}>Loan — add/modify a debt payment</option>
+      <option value="recurring" ${type === 'recurring' ? 'selected' : ''}>Recurring — add a new recurring item</option>
+    `;
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:560px;">
+          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:1rem;">Edit Scenario</h2>
+          <input type="hidden" id="editScenarioId" value="${s.id}">
+          <div style="display:flex; flex-direction:column; gap:0.85rem;">
+            <div>
+              <label class="stat-label">Scenario Type</label>
+              <select id="scenarioTypeInput" onchange="app.onScenarioTypeChange()">${typeOpts}</select>
+            </div>
+            <div>
+              <label class="stat-label">Name</label>
+              <input type="text" id="scenarioNameInput" value="${this.escapeHtml(s.name)}">
+            </div>
+            <div id="scenarioTypeFields"></div>
+          </div>
+          <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem;">
+            <button class="btn btn-danger btn-sm" data-action="deleteScenario">Delete</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn" data-action="closeModal">Cancel</button>
+              <button class="btn btn-primary" data-action="saveEditedScenario">Save</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    this.onScenarioTypeChange();
+    // Pre-fill values based on the existing scenario
+    setTimeout(() => this.prefillScenarioEdit(s), 0);
+  }
+
+  prefillScenarioEdit(s) {
+    const type = s.type || 'custom';
+    if (type === 'custom' || type === 'recurring') {
+      const el = document.getElementById('scenarioAmountInput');
+      if (el) el.value = (parseFloat(s.amount) || 0).toFixed(2);
+      return;
+    }
+    if (type === 'paycheck' || type === 'bill') {
+      const sel = document.getElementById('scenarioGroupInput');
+      if (sel && s.groupId) sel.value = s.groupId;
+      const amtEl = document.getElementById('scenarioNewAmountInput');
+      if (amtEl) amtEl.value = Math.abs(parseFloat(s.amount) || 0).toFixed(2);
+      return;
+    }
+    if (type === 'loan') {
+      const sel = document.getElementById('scenarioLoanInput');
+      if (sel && s.loanId) {
+        sel.value = s.loanId;
+        this.onScenarioLoanChange();
+      }
+      const ov = s.loanOverrides || {};
+      if (ov.balance != null) {
+        const el = document.getElementById('scenarioLoanBalance');
+        if (el) el.value = parseFloat(ov.balance).toFixed(2);
+      }
+      if (ov.rate != null) {
+        const el = document.getElementById('scenarioLoanRate');
+        if (el) el.value = ov.rate;
+      }
+      if (ov.termYears != null) {
+        const el = document.getElementById('scenarioLoanTerm');
+        if (el) el.value = ov.termYears;
+      }
+    }
+  }
+
+  saveEditedScenario() {
+    const id = document.getElementById('editScenarioId').value;
+    const sc = this.state.scenarios.find(s => s.id === id);
+    if (!sc) return;
+
+    const type = document.getElementById('scenarioTypeInput').value;
+    const rawName = document.getElementById('scenarioNameInput').value.trim();
+
+    // Reset type-specific fields
+    sc.type = type;
+    sc.groupId = null;
+    sc.loanId = null;
+    sc.loanOverrides = null;
+
+    if (type === 'custom' || type === 'recurring') {
+      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+      sc.amount = amt;
+    } else if (type === 'paycheck' || type === 'bill') {
+      const groupId = document.getElementById('scenarioGroupInput')?.value;
+      if (!groupId) { alert('Select a recurring item.'); return; }
+      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+      sc.groupId = groupId;
+      sc.amount = Math.abs(amt);
+    } else if (type === 'loan') {
+      const loanId = document.getElementById('scenarioLoanInput')?.value;
+      if (!loanId) { alert('Select a loan.'); return; }
+      sc.loanId = loanId;
+      sc.loanOverrides = {
+        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+        termYears: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30
+      };
+      sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, sc.loanOverrides.termYears);
+    }
+
+    if (rawName) sc.name = rawName;
+    this.saveState();
+    this.closeModal();
+    this.renderForecaster();
+    this.showToast('Scenario updated');
+  }
+
+  deleteScenario() {
+    const id = document.getElementById('editScenarioId').value;
+    if (!confirm('Delete this scenario?')) return;
+    this.state.scenarios = this.state.scenarios.filter(s => s.id !== id);
+    this.saveState();
+    this.closeModal();
+    this.renderForecaster();
+  }
+
   openRecurringModal() {
     this.openModal(`
       <div class="modal-overlay active">
@@ -2723,12 +2976,12 @@ class MoneyTrackerApp {
     reader.onload = (e) => {
       try {
         this.state = JSON.parse(e.target.result);
+        // Ensure taxStates exists after import
         if (!this.state.taxStates || !this.state.taxStates.length) {
           this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
-        if (this.state.scenarios) {
-          this.state.scenarios.forEach(s => { if (!s.type) s.type = 'adjustment'; });
-        }
+        // Ensure scenarios have a type
+        (this.state.scenarios || []).forEach(s => { if (!s.type) s.type = 'custom'; });
         this.saveState();
         this.recalculateBalances();
         this.init();
