@@ -1,5 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - COMPLETE (STEP 3)
+   MONEY TRACKER APP - STEP 4
+   Progressive Tax Brackets + State Manager
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -53,17 +54,35 @@ const CATEGORY_RULES = [
   { contains: "SAM'S CLUB", category: "Shopping", flow: "Flexible Spending" }
 ];
 
-const STATE_RATES = { 'TX': 0, 'FL': 0, 'CA': 0.09, 'NY': 0.06, 'IL': 0.0495, 'PA': 0.0307, 'OH': 0.035, 'GA': 0.0575, 'NC': 0.0525, 'AZ': 0.025 };
+// Default tax states — user can add more via the UI
+const MAX_BRACKET = 999999999;
+const DEFAULT_TAX_STATES = [
+  {
+    code: 'OK', name: 'Oklahoma',
+    brackets: [
+      { min: 0, max: 1000, rate: 0.25 },
+      { min: 1000, max: 2500, rate: 0.75 },
+      { min: 2500, max: 3750, rate: 1.75 },
+      { min: 3750, max: 4900, rate: 2.75 },
+      { min: 4900, max: 7200, rate: 3.75 },
+      { min: 7200, max: MAX_BRACKET, rate: 4.75 }
+    ]
+  },
+  { code: 'TX', name: 'Texas', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] },
+  { code: 'FL', name: 'Florida', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] }
+];
 
 const INITIAL_EMPTY_STATE = {
-  version: 2,
+  version: 3,
   accounts: {
-    CHECKING: { id: "CHECKING", name: "Joint Checking 0199", verifiedBalance: 0.00 },
-    SAVINGS: { id: "SAVINGS", name: "Joint Savings 3703", verifiedBalance: 0.00 }
+    CHECKING: { id: "CHECKING", name: "Joint Checking", verifiedBalance: 0.00 },
+    SAVINGS: { id: "SAVINGS", name: "Joint Savings", verifiedBalance: 0.00 }
   },
   vaults: [], pendingItems: [], transactions: [],
   scenarios: [{ id: "sc_honda", name: "Increase Honda Payment", amount: -100.00, active: true }],
-  suggestedVaults: [], nicknameRules: [], loans: []
+  suggestedVaults: [], nicknameRules: [], loans: [],
+  taxStates: JSON.parse(JSON.stringify(DEFAULT_TAX_STATES)),
+  selectedState: 'OK'
 };
 
 class MoneyTrackerApp {
@@ -81,13 +100,12 @@ class MoneyTrackerApp {
     this.compactDensity = false;
     this.searchQuery = '';
     this.stagedFiles = [];
-    this.debtSimLoanId = null;
-    this.debtSimExtra = 0;
+    this.editingStateCode = null;
   }
 
   /* ============ STORAGE ============ */
   loadState() {
-    const saved = localStorage.getItem('MONEY_TRACKER_STATE_V2');
+    const saved = localStorage.getItem('MONEY_TRACKER_STATE_V3');
     if (saved) {
       try {
         const p = JSON.parse(saved);
@@ -97,6 +115,18 @@ class MoneyTrackerApp {
         p.suggestedVaults = p.suggestedVaults || []; p.nicknameRules = p.nicknameRules || [];
         p.loans = p.loans || [];
         p.accounts = p.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
+        // Sanitize account names (remove old account numbers)
+        if (p.accounts.CHECKING) {
+          p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
+        }
+        if (p.accounts.SAVINGS) {
+          p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+        }
+        // Ensure taxStates exists and has defaults
+        if (!p.taxStates || !Array.isArray(p.taxStates) || p.taxStates.length === 0) {
+          p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+        }
+        if (!p.selectedState) p.selectedState = p.taxStates[0]?.code || 'OK';
         return p;
       } catch(e) { console.error("State load error:", e); }
     }
@@ -106,7 +136,7 @@ class MoneyTrackerApp {
   saveState() {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => {
-      try { localStorage.setItem('MONEY_TRACKER_STATE_V2', JSON.stringify(this.state)); }
+      try { localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state)); }
       catch(e) { console.error("Save error:", e); this.showToast("Storage full!"); }
     }, 1500);
   }
@@ -117,7 +147,6 @@ class MoneyTrackerApp {
     this.applyNicknameRules();
     this.cleanSpotify();
     this.recalculateLoanBalances();
-    this.syncForecaster();
     this.renderTabContent(this.currentTab);
     this.bindGlobalEvents();
   }
@@ -149,16 +178,14 @@ class MoneyTrackerApp {
         this.chartRanges.networth = nwEl.dataset.networthRange;
         document.querySelectorAll('[data-networth-range]').forEach(b => b.classList.remove('active-mode'));
         nwEl.classList.add('active-mode');
-        this.renderCharts();
-        return;
+        this.renderCharts(); return;
       }
       const fcEl = e.target.closest('[data-forecaster-range]');
       if (fcEl) {
         this.chartRanges.forecaster = fcEl.dataset.forecasterRange;
         document.querySelectorAll('[data-forecaster-range]').forEach(b => b.classList.remove('active-mode'));
         fcEl.classList.add('active-mode');
-        this.renderCharts();
-        return;
+        this.renderCharts(); return;
       }
     });
 
@@ -167,6 +194,11 @@ class MoneyTrackerApp {
       if (t.matches('.cat-select')) this.updateRowCategory(t.dataset.txId, t.value);
       else if (t.matches('[data-row-checkbox]')) this.toggleRowSelect(t.dataset.rowCheckbox, t.checked);
       else if (t.matches('#checkingHeaderSelect')) this.selectAllRows('checking', t.checked);
+      else if (t.matches('#payState')) {
+        this.state.selectedState = t.value;
+        this.saveState();
+        this.calculatePaycheck();
+      }
     });
 
     document.body.addEventListener('input', (e) => {
@@ -184,7 +216,6 @@ class MoneyTrackerApp {
       this.resizeTimeout = requestAnimationFrame(() => this.renderCharts());
     });
 
-    // Close modal on overlay click
     document.body.addEventListener('click', (e) => {
       if (e.target.classList.contains('modal-overlay')) {
         e.target.classList.remove('active');
@@ -355,6 +386,9 @@ class MoneyTrackerApp {
   }
 
   tplPaycheck() {
+    const stateOpts = this.state.taxStates.map(s =>
+      `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
+    ).join('');
     return `
       <section class="view-container active">
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
@@ -370,14 +404,12 @@ class MoneyTrackerApp {
           <div class="card">
             <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Deductions & Taxes</h3>
             <div style="display:flex; flex-direction:column; gap:0.75rem;">
-              <div><label class="stat-label">State</label>
-                <select id="payState" onchange="app.calculatePaycheck()">
-                  <option value="TX">Texas (0%)</option><option value="FL">Florida (0%)</option>
-                  <option value="CA">California (9%)</option><option value="NY">New York (6%)</option>
-                  <option value="IL">Illinois (4.95%)</option><option value="PA">Pennsylvania (3.07%)</option>
-                  <option value="OH">Ohio (3.5%)</option><option value="GA">Georgia (5.75%)</option>
-                  <option value="NC">North Carolina (5.25%)</option><option value="AZ">Arizona (2.5%)</option>
-                </select>
+              <div>
+                <label class="stat-label">State</label>
+                <div style="display:flex; gap:0.5rem; align-items:center;">
+                  <select id="payState" style="flex:1;">${stateOpts}</select>
+                  <button class="btn btn-sm" data-action="openTaxBracketModal" title="Manage state tax brackets">⚙️</button>
+                </div>
               </div>
               <div><label class="stat-label">Federal Tax Rate (%)</label><input type="number" id="payFederalRate" value="12" oninput="app.debouncedPaycheck()"></div>
               <div><label class="stat-label">Monthly Benefits Cost ($)</label><input type="number" id="payBenefits" value="0" oninput="app.debouncedPaycheck()"></div>
@@ -497,18 +529,34 @@ class MoneyTrackerApp {
     return this.sortState.asc ? '↑' : '↓';
   }
 
-  /* ============ DEBOUNCE HELPERS ============ */
+  /* ============ DEBOUNCE ============ */
   debouncedPaycheck() {
     if (this._paycheckT) clearTimeout(this._paycheckT);
-    this._paycheckT = setTimeout(() => this.calculatePaycheck(), 300);
+    this._paycheckT = setTimeout(() => this.calculatePaycheck(), 250);
   }
   debouncedForecaster() {
     if (this._fcT) clearTimeout(this._fcT);
-    this._fcT = setTimeout(() => this.renderForecaster(), 300);
+    this._fcT = setTimeout(() => this.renderForecaster(), 250);
   }
   debouncedAPY() {
     if (this._apyT) clearTimeout(this._apyT);
-    this._apyT = setTimeout(() => this.renderAPY(), 300);
+    this._apyT = setTimeout(() => this.renderAPY(), 250);
+  }
+  debouncedDebtSim() {
+    if (this._dsT) clearTimeout(this._dsT);
+    this._dsT = setTimeout(() => this.renderDebtSimulation(), 250);
+  }
+
+  /* ============ PROGRESSIVE TAX ENGINE ============ */
+  calculateProgressiveTax(income, brackets) {
+    if (!brackets || !brackets.length || income <= 0) return 0;
+    let tax = 0;
+    for (const b of brackets) {
+      if (income <= b.min) break;
+      const taxable = Math.min(income, b.max) - b.min;
+      if (taxable > 0) tax += taxable * (b.rate / 100);
+    }
+    return tax;
   }
 
   /* ============ CHECKING VIEW ============ */
@@ -558,12 +606,11 @@ class MoneyTrackerApp {
     const header = document.getElementById('checkingHeaderSelect');
     if (header) header.checked = items.length > 0 && items.every(i => this.selectedRows.has(i.id));
 
-    // Limit rendering to 500 rows for performance; show notice if more
     const limit = 500;
-    const displayItems = items.slice(0, limit);
-    let html = displayItems.map(t => this.buildCheckingRow(t)).join('');
+    const display = items.slice(0, limit);
+    let html = display.map(t => this.buildCheckingRow(t)).join('');
     if (items.length > limit) {
-      html += `<tr><td colspan="9" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">Showing first ${limit} of ${items.length} transactions. Use search to narrow down.</td></tr>`;
+      html += `<tr><td colspan="9" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">Showing first ${limit} of ${items.length}. Use search to narrow.</td></tr>`;
     }
     tbody.innerHTML = html;
   }
@@ -573,14 +620,14 @@ class MoneyTrackerApp {
     const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
     const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
     const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
-    const displayName = t.nickname
+    const dn = t.nickname
       ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
       : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
 
     return `<tr data-tx-row="${t.id}">
       <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
       <td class="mono">${t.date}</td>
-      <td>${displayName}</td>
+      <td>${dn}</td>
       <td><div class="cat-select-wrapper" style="--cat-bg:${colors.bg}; --cat-color:${colors.color}; --cat-border:${colors.border}; --cat-glow:${colors.glow};">
         <select class="cat-select" data-tx-id="${t.id}">${catOpts}</select>
       </div></td>
@@ -638,7 +685,7 @@ class MoneyTrackerApp {
       </tr>`).join('');
   }
 
-  /* ============ NET WORTH VIEW ============ */
+  /* ============ NET WORTH ============ */
   renderNetWorthView() {
     const chk = this.getBalances('CHECKING');
     const sav = this.getBalances('SAVINGS');
@@ -792,14 +839,13 @@ class MoneyTrackerApp {
 
       const year = this.calendarMonth.getFullYear();
       const month = this.calendarMonth.getMonth();
-      const monthNames = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      title.innerText = `${monthNames[month]} ${year}`;
+      const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      title.innerText = `${mn[month]} ${year}`;
 
       const firstDay = new Date(year, month, 1).getDay();
       const daysInMonth = new Date(year, month + 1, 0).getDate();
       const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-      // Pre-filter using index for O(1) lookups
       const dayMap = new Map();
       this.state.transactions.forEach(t => {
         if (t.date && t.date.startsWith(monthPrefix)) {
@@ -832,7 +878,6 @@ class MoneyTrackerApp {
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
         cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-
         const num = document.createElement('div');
         num.style.fontWeight = '700';
         num.style.fontSize = '0.85rem';
@@ -857,7 +902,7 @@ class MoneyTrackerApp {
           mc.className = 'calendar-mobile-card has-activity';
           mc.addEventListener('click', () => this.openDayDrawer(dateStr));
           mc.innerHTML = `
-            <div><div style="font-weight:700;">${monthNames[month]} ${d}, ${year}</div>
+            <div><div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
             <div style="font-size:0.75rem; color:var(--text-muted);">${dayTxs.length} transaction(s)</div></div>
             <div style="color:${color}; font-weight:600;">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</div>`;
           mobileFrag.appendChild(mc);
@@ -883,9 +928,7 @@ class MoneyTrackerApp {
             <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${(totalIncome-totalExpense)>=0?'var(--accent-positive)':'var(--accent-negative)'}; font-size:1.2rem;">$${(totalIncome-totalExpense).toFixed(2)}</div></div>
           </div>`;
       }
-    } catch(e) {
-      console.error("Calendar error:", e);
-    }
+    } catch(e) { console.error("Calendar error:", e); }
   }
 
   changeMonth(btn) {
@@ -981,11 +1024,6 @@ class MoneyTrackerApp {
     }
   }
 
-  debouncedDebtSim() {
-    if (this._dsT) clearTimeout(this._dsT);
-    this._dsT = setTimeout(() => this.renderDebtSimulation(), 300);
-  }
-
   renderDebtSimulation() {
     const loans = this.state.loans || [];
     if (!loans.length) return;
@@ -1059,11 +1097,8 @@ class MoneyTrackerApp {
     ctx.clearRect(0, 0, rect.width, 220);
 
     if (!schedule || schedule.length === 0) {
-      ctx.fillStyle = '#8a8f9e';
-      ctx.font = '12px Inter';
-      ctx.textAlign = 'center';
-      ctx.fillText('Payment is too low to cover interest.', rect.width / 2, 110);
-      return;
+      ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
+      ctx.fillText('Payment is too low to cover interest.', rect.width / 2, 110); return;
     }
     const maxM = Math.max(schedule.length, minSchedule.length);
     const maxB = schedule[0].balance;
@@ -1071,11 +1106,8 @@ class MoneyTrackerApp {
     const getX = m => 50 + (m / maxM) * (rect.width - 70);
     const getY = b => endY - ((b - 0) / (maxB - 0)) * ch;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.fillStyle = '#5a5e6b';
-    ctx.font = '10px JetBrains Mono';
-    ctx.textAlign = 'right';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+    ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
       const y = startY + (ch / 4) * i;
       ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(rect.width - 20, y); ctx.stroke();
@@ -1086,8 +1118,7 @@ class MoneyTrackerApp {
     const totalY = Math.ceil(maxM / 12);
     const yStep = Math.max(1, Math.ceil(totalY / 5));
     for (let y = 0; y <= totalY; y += yStep) {
-      const x = getX(y * 12);
-      ctx.fillText(`Yr ${y}`, x, endY + 18);
+      ctx.fillText(`Yr ${y}`, getX(y * 12), endY + 18);
     }
     ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2;
     minSchedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
@@ -1105,21 +1136,51 @@ class MoneyTrackerApp {
     const weeks = get('payWeeks', 52);
     const benefits = get('payBenefits', 0);
     const fedRate = get('payFederalRate', 12);
-    const state = document.getElementById('payState')?.value || 'TX';
+    const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
 
     const weeklyGross = hourly * hours;
     const annualGross = weeklyGross * weeks;
     const monthlyGross = annualGross / 12;
-    const stateRate = STATE_RATES[state] || 0;
+
+    // Progressive state tax
+    const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
+    let stateTax = 0;
+    let effectiveStateRate = 0;
+    if (stateData) {
+      stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
+      effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
+    }
 
     const fedTax = annualGross * (fedRate / 100);
-    const stateTax = annualGross * stateRate;
     const ss = annualGross * 0.062;
     const med = annualGross * 0.0145;
     const totalTax = fedTax + stateTax + ss + med;
     const annualBenefits = benefits * 12;
     const annualNet = annualGross - totalTax - annualBenefits;
     const monthlyNet = annualNet / 12;
+
+    // Build bracket breakdown HTML if state has multiple brackets
+    let bracketBreakdown = '';
+    if (stateData && stateData.brackets.length > 1) {
+      const rows = [];
+      for (const b of stateData.brackets) {
+        if (annualGross <= b.min) break;
+        const taxable = Math.min(annualGross, b.max) - b.min;
+        if (taxable <= 0) continue;
+        const taxAtBracket = taxable * (b.rate / 100);
+        const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
+        rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
+          <span class="mono" style="color:var(--accent-negative);">$${taxAtBracket.toFixed(2)}</span>
+        </div>`);
+      }
+      if (rows.length > 0) {
+        bracketBreakdown = `<div style="background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-top:0.5rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.3rem;">${this.escapeHtml(stateData.name)} Brackets</div>
+          ${rows.join('')}
+        </div>`;
+      }
+    }
 
     const el = document.getElementById('paycheckResults');
     if (!el) return;
@@ -1138,11 +1199,169 @@ class MoneyTrackerApp {
         <div class="stat-label">DEDUCTIONS BREAKDOWN</div>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; margin-top:0.5rem;">
           <div>Federal (${fedRate}%): <span style="color:var(--accent-negative);">$${fedTax.toFixed(2)}</span></div>
-          <div>State (${(stateRate*100).toFixed(2)}%): <span style="color:var(--accent-negative);">$${stateTax.toFixed(2)}</span></div>
+          <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (eff. ${effectiveStateRate.toFixed(2)}%): <span style="color:var(--accent-negative);">$${stateTax.toFixed(2)}</span></div>
           <div>Social Security: <span style="color:var(--accent-negative);">$${ss.toFixed(2)}</span></div>
           <div>Medicare: <span style="color:var(--accent-negative);">$${med.toFixed(2)}</span></div>
           <div>Benefits: <span style="color:var(--accent-negative);">$${annualBenefits.toFixed(2)}</span></div>
         </div>
+        ${bracketBreakdown}
+      </div>`;
+  }
+
+  /* ============ TAX BRACKET MODAL ============ */
+  openTaxBracketModal() {
+    const states = this.state.taxStates || [];
+    const selected = this.state.selectedState || states[0]?.code;
+    const current = states.find(s => s.code === selected) || states[0];
+
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:700px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h2 style="font-size:1.2rem; font-weight:700;">⚙ State Tax Brackets</h2>
+            <button class="btn btn-sm" data-action="closeModal">Close</button>
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr auto; gap:0.5rem; margin-bottom:1rem;">
+            <div>
+              <label class="stat-label">Select State</label>
+              <select id="tbStateSelect" onchange="app.loadBracketEditor(this.value)">
+                ${states.map(s => `<option value="${s.code}" ${s.code === selected ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`).join('')}
+              </select>
+            </div>
+            <div style="display:flex; align-items:flex-end;">
+              <button class="btn btn-sm btn-primary" data-action="newTaxState">+ New State</button>
+            </div>
+          </div>
+
+          <div id="tbEditor"></div>
+
+          <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem;">
+            <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn" data-action="closeModal">Cancel</button>
+              <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+    if (current) this.loadBracketEditor(current.code);
+  }
+
+  loadBracketEditor(code) {
+    const state = (this.state.taxStates || []).find(s => s.code === code);
+    const editor = document.getElementById('tbEditor');
+    if (!editor) return;
+    if (!state) { editor.innerHTML = ''; return; }
+
+    this.editingStateCode = code;
+
+    const rowsHtml = state.brackets.map((b, i) => `
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:0.5rem; align-items:center; margin-bottom:0.4rem;" data-bracket-row="${i}">
+        <input type="number" step="0.01" placeholder="Min $" value="${b.min}" data-bracket-min="${i}">
+        <input type="number" step="0.01" placeholder="Max $" value="${b.max >= MAX_BRACKET ? '' : b.max}" data-bracket-max="${i}" title="Leave empty for top bracket">
+        <input type="number" step="0.01" placeholder="Rate %" value="${b.rate}" data-bracket-rate="${i}">
+        <button class="btn btn-sm btn-danger" data-action="removeBracketRow" data-index="${i}">✕</button>
+      </div>`).join('');
+
+    editor.innerHTML = `
+      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
+          <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" value="${this.escapeHtml(state.code)}" maxlength="4"></div>
+          <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" value="${this.escapeHtml(state.name)}"></div>
+        </div>
+        <div class="stat-label" style="margin-bottom:0.5rem;">Brackets (Min $ | Max $ | Rate %)</div>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.5rem;">Leave Max empty for the top bracket (no upper limit).</div>
+        <div id="tbBracketRows">${rowsHtml}</div>
+        <button class="btn btn-sm" data-action="addBracketRow" style="margin-top:0.5rem;">+ Add Bracket</button>
+      </div>`;
+  }
+
+  addBracketRow() {
+    const rows = document.getElementById('tbBracketRows');
+    if (!rows) return;
+    const i = rows.querySelectorAll('[data-bracket-row]').length;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:0.5rem; align-items:center; margin-bottom:0.4rem;';
+    row.setAttribute('data-bracket-row', i);
+    row.innerHTML = `
+      <input type="number" step="0.01" placeholder="Min $" data-bracket-min="${i}">
+      <input type="number" step="0.01" placeholder="Max $" data-bracket-max="${i}">
+      <input type="number" step="0.01" placeholder="Rate %" data-bracket-rate="${i}">
+      <button class="btn btn-sm btn-danger" data-action="removeBracketRow" data-index="${i}">✕</button>`;
+    rows.appendChild(row);
+  }
+
+  removeBracketRow(btn) {
+    const row = btn.closest('[data-bracket-row]');
+    if (row) row.remove();
+  }
+
+  saveTaxBrackets() {
+    const code = document.getElementById('tbStateCode')?.value.trim().toUpperCase();
+    const name = document.getElementById('tbStateName')?.value.trim();
+    if (!code || !name) { alert('Enter a state code and name.'); return; }
+
+    const brackets = [];
+    const rows = document.querySelectorAll('#tbBracketRows [data-bracket-row]');
+    rows.forEach(row => {
+      const min = parseFloat(row.querySelector('[data-bracket-min]')?.value) || 0;
+      const maxInput = row.querySelector('[data-bracket-max]')?.value;
+      const max = maxInput === '' ? MAX_BRACKET : (parseFloat(maxInput) || MAX_BRACKET);
+      const rate = parseFloat(row.querySelector('[data-bracket-rate]')?.value) || 0;
+      brackets.push({ min, max, rate });
+    });
+    brackets.sort((a, b) => a.min - b.min);
+
+    if (brackets.length === 0) { alert('Add at least one bracket.'); return; }
+
+    // Find and replace, or add
+    const idx = (this.state.taxStates || []).findIndex(s => s.code === this.editingStateCode);
+    const entry = { code, name, brackets };
+    if (idx >= 0) this.state.taxStates[idx] = entry;
+    else this.state.taxStates.push(entry);
+
+    this.state.selectedState = code;
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('paycheck');
+    this.showToast(`Saved ${name} brackets`);
+  }
+
+  deleteTaxState() {
+    const code = document.getElementById('tbStateCode')?.value.trim().toUpperCase();
+    if (!code) return;
+    if (!confirm(`Delete tax brackets for ${code}?`)) return;
+    this.state.taxStates = (this.state.taxStates || []).filter(s => s.code !== code);
+    if (this.state.selectedState === code) {
+      this.state.selectedState = this.state.taxStates[0]?.code || null;
+    }
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('paycheck');
+    this.showToast(`Deleted ${code}`);
+  }
+
+  newTaxState() {
+    this.editingStateCode = null;
+    const editor = document.getElementById('tbEditor');
+    if (!editor) return;
+    editor.innerHTML = `
+      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
+          <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" placeholder="e.g. KS" maxlength="4"></div>
+          <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" placeholder="e.g. Kansas"></div>
+        </div>
+        <div class="stat-label" style="margin-bottom:0.5rem;">Brackets (Min $ | Max $ | Rate %)</div>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.5rem;">Leave Max empty for the top bracket (no upper limit).</div>
+        <div id="tbBracketRows">
+          <div style="display:grid; grid-template-columns: 1fr 1fr 1fr auto; gap:0.5rem; align-items:center; margin-bottom:0.4rem;" data-bracket-row="0">
+            <input type="number" step="0.01" placeholder="Min $" value="0" data-bracket-min="0">
+            <input type="number" step="0.01" placeholder="Max $" data-bracket-max="0">
+            <input type="number" step="0.01" placeholder="Rate %" data-bracket-rate="0">
+            <button class="btn btn-sm btn-danger" data-action="removeBracketRow" data-index="0">✕</button>
+          </div>
+        </div>
+        <button class="btn btn-sm" data-action="addBracketRow" style="margin-top:0.5rem;">+ Add Bracket</button>
       </div>`;
   }
 
@@ -1174,10 +1393,8 @@ class MoneyTrackerApp {
     const avgInc = gi('fcAvgIncome');
     const avgFix = gi('fcAvgFixed');
     const avgVar = gi('fcAvgVariable');
-
     let scenSum = 0;
     (this.state.scenarios || []).forEach(s => { if (s.active) scenSum += (parseFloat(s.amount) || 0); });
-
     const netFull = avgInc - avgFix - avgVar + scenSum;
     const netBills = avgInc - avgFix + scenSum;
 
@@ -1215,11 +1432,7 @@ class MoneyTrackerApp {
   toggleScenario(btn) {
     const id = btn.dataset.scenarioId;
     const sc = this.state.scenarios.find(s => s.id === id);
-    if (sc) {
-      sc.active = !sc.active;
-      this.saveState();
-      this.renderForecaster();
-    }
+    if (sc) { sc.active = !sc.active; this.saveState(); this.renderForecaster(); }
   }
 
   /* ============ APY ============ */
@@ -1253,7 +1466,6 @@ class MoneyTrackerApp {
           <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.3rem;">$${interest.toFixed(2)}</div></div>
       </div>`;
 
-    // Draw chart
     const canvas = document.getElementById('apyChart');
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
@@ -1271,10 +1483,8 @@ class MoneyTrackerApp {
     const getX = i => 50 + (i / months) * (rect.width - 70);
     const getY = v => endY - ((v - (minV - pad)) / ((maxV + pad) - (minV - pad))) * ch;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillStyle = '#5a5e6b';
-    ctx.font = '10px JetBrains Mono';
-    ctx.textAlign = 'right';
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.fillStyle = '#5a5e6b';
+    ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
       const y = startY + (ch / 4) * i;
       ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(rect.width - 20, y); ctx.stroke();
@@ -1323,12 +1533,10 @@ class MoneyTrackerApp {
 
     const txs = this.state.transactions.filter(t => t.account === 'CHECKING' && t.status !== 'estimated')
       .sort((a, b) => new Date(a.date) - new Date(b.date));
-
     if (txs.length === 0) {
       ctx.fillStyle = '#8a8f9e'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
       ctx.fillText('No data', rect.width / 2, 130); return;
     }
-
     const range = this.chartRanges.checking || 'week';
     const latest = new Date(txs[txs.length - 1].date);
     let start = new Date(latest);
@@ -1344,7 +1552,6 @@ class MoneyTrackerApp {
     } else {
       while (iter <= latest) { timeline.push(new Date(iter)); iter.setDate(iter.getDate() + 1); }
     }
-
     const data = [];
     let idx = 0, bal = 0;
     while (idx < txs.length && new Date(txs[idx].date) < start) { bal = parseFloat(txs[idx].balance) || 0; idx++; }
@@ -1352,7 +1559,6 @@ class MoneyTrackerApp {
       while (idx < txs.length && new Date(txs[idx].date) <= date) { bal = parseFloat(txs[idx].balance) || 0; idx++; }
       data.push({ date, balance: bal });
     });
-
     const vals = data.map(d => d.balance);
     const minV = Math.min(...vals), maxV = Math.max(...vals);
     const pad = (maxV - minV) * 0.1 || 10;
@@ -1362,7 +1568,6 @@ class MoneyTrackerApp {
       const n = (d.balance - (minV - pad)) / ((maxV + pad) - (minV - pad));
       return { x, y: endY - n * ch, date: d.date };
     });
-
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.fillStyle = '#5a5e6b';
     ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
@@ -1403,12 +1608,10 @@ class MoneyTrackerApp {
     const allTxs = this.state.transactions.filter(t => t.status !== 'estimated')
       .sort((a, b) => new Date(a.date) - new Date(b.date));
     const vaultTotal = this.getBalances('SAVINGS').vaults;
-
     if (allTxs.length === 0) {
       ctx.fillStyle = '#8a8f9e'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
-      ctx.fillText('No net worth data', rect.width / 2, 130); return;
+      ctx.fillText('No data', rect.width / 2, 130); return;
     }
-
     const range = this.chartRanges.networth || 'year';
     const latest = new Date(allTxs[allTxs.length - 1].date);
     let start = new Date(latest);
@@ -1424,7 +1627,6 @@ class MoneyTrackerApp {
     } else {
       while (iter <= latest) { timeline.push(new Date(iter)); iter.setDate(iter.getDate() + 1); }
     }
-
     let curC = 0, curS = 0, idx = 0;
     while (idx < allTxs.length && new Date(allTxs[idx].date) < start) {
       const tx = allTxs[idx];
@@ -1441,7 +1643,6 @@ class MoneyTrackerApp {
       }
       return { date, balance: curC + curS + vaultTotal };
     });
-
     const vals = data.map(d => d.balance);
     const minV = Math.min(...vals), maxV = Math.max(...vals);
     const pad = (maxV - minV) * 0.1 || 10;
@@ -1451,7 +1652,6 @@ class MoneyTrackerApp {
       const n = (d.balance - (minV - pad)) / ((maxV + pad) - (minV - pad));
       return { x, y: endY - n * ch, date: d.date };
     });
-
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.fillStyle = '#5a5e6b';
     ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
@@ -1496,7 +1696,6 @@ class MoneyTrackerApp {
       totals[c] = (totals[c] || 0) + Math.abs(parseFloat(t.amount) || 0);
       grand += Math.abs(parseFloat(t.amount) || 0);
     });
-
     const legend = document.getElementById('categoryLegend');
     if (grand === 0) {
       ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
@@ -1504,7 +1703,6 @@ class MoneyTrackerApp {
       if (legend) legend.innerHTML = '';
       return;
     }
-
     const cx = rect.width / 2, cy = 120, radius = 85;
     const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
     const threshold = grand * 0.03;
@@ -1529,7 +1727,6 @@ class MoneyTrackerApp {
       ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 2; ctx.stroke();
       startA = endA;
     });
-
     if (legend) legend.innerHTML = display.map(([cat, val]) => {
       const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
       return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
@@ -1555,7 +1752,6 @@ class MoneyTrackerApp {
     const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
     let scenSum = 0;
     this.state.scenarios.forEach(s => { if (s.active) scenSum += (parseFloat(s.amount) || 0); });
-
     const netFull = avgInc - avgFix - avgVar + scenSum;
     const netBills = avgInc - avgFix + scenSum;
     const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
@@ -1588,7 +1784,6 @@ class MoneyTrackerApp {
     ctx.textAlign = 'center';
     const st = Math.max(1, Math.ceil(num / 6));
     for (let i = 0; i <= num; i += st) ctx.fillText(lblFn(i), getX(i), endY + 18);
-
     ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
     dataF.forEach((d, i) => { if (i === 0) ctx.moveTo(getX(i), getY(d.y)); else ctx.lineTo(getX(i), getY(d.y)); });
     ctx.stroke();
@@ -1599,16 +1794,10 @@ class MoneyTrackerApp {
 
   /* ============ MODALS ============ */
   openModal(html) {
-    const c = document.getElementById('modalContainer');
-    c.innerHTML = html;
+    document.getElementById('modalContainer').innerHTML = html;
   }
 
-  closeModal(e) {
-    const btn = e?.target || e;
-    if (btn && btn.closest) {
-      const overlay = btn.closest('.modal-overlay');
-      if (overlay) overlay.classList.remove('active');
-    }
+  closeModal() {
     document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
   }
 
@@ -1616,7 +1805,7 @@ class MoneyTrackerApp {
     const nicknameRules = this.state.nicknameRules || [];
     const catOpts = `<option value="">-- Leave Category Unchanged --</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
     this.openModal(`
-      <div class="modal-overlay active" id="rulesModal">
+      <div class="modal-overlay active">
         <div class="modal" style="max-width:700px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h2 style="font-size:1.2rem; font-weight:700;">⚙ Active Rules</h2>
@@ -1625,8 +1814,8 @@ class MoneyTrackerApp {
           <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
             <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">+ ADD NEW RULE</div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
-              <div><label class="stat-label">Contains</label><input type="text" id="newRuleSearch" placeholder="e.g. TINKER FCU"></div>
-              <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname" placeholder="e.g. Tinker Payment"></div>
+              <div><label class="stat-label">Contains</label><input type="text" id="newRuleSearch"></div>
+              <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname"></div>
             </div>
             <div style="display:grid; grid-template-columns:1fr auto; gap:0.5rem; align-items:flex-end;">
               <div><label class="stat-label">Category (Optional)</label><select id="newRuleCategory">${catOpts}</select></div>
@@ -1635,8 +1824,8 @@ class MoneyTrackerApp {
           </div>
           <div style="display:flex; flex-direction:column; gap:1.5rem;">
             <div>
-              <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">Saved Nickname Rules</h3>
-              <div id="nicknameRulesList">
+              <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">Saved Rules</h3>
+              <div>
                 ${nicknameRules.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>' :
                   nicknameRules.map(r => `
                     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
@@ -1646,14 +1835,6 @@ class MoneyTrackerApp {
                       <button class="btn btn-sm btn-danger" data-action="deleteNicknameRule" data-pattern="${this.escapeHtml(r.searchPattern)}">🗑️</button>
                     </div>`).join('')}
               </div>
-            </div>
-            <div>
-              <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-secondary); margin-bottom:0.5rem;">Default System Rules</h3>
-              <div>${CATEGORY_RULES.map(r => `
-                <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.4rem 0.75rem; border-radius:var(--radius-sm); font-size:0.8rem; margin-bottom:0.3rem;">
-                  <span>Contains: <strong style="font-family:var(--font-mono);">${r.contains}</strong></span>
-                  <span class="badge badge-vault">${r.category}</span>
-                </div>`).join('')}</div>
             </div>
           </div>
         </div>
@@ -1696,14 +1877,13 @@ class MoneyTrackerApp {
   openImportWizard() {
     this.stagedFiles = [];
     this.openModal(`
-      <div class="modal-overlay active" id="importModal">
+      <div class="modal-overlay active">
         <div class="modal">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h2 style="font-size:1.2rem; font-weight:700;">Import Bank CSV</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
-          <div style="border:2px dashed var(--border-glow); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;"
-               data-action="triggerCsvUpload">
+          <div style="border:2px dashed var(--border-glow); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
             <p>Click to browse CSV files</p>
             <p style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem;">Format: Date, Description, Amount, Balance</p>
           </div>
@@ -1711,14 +1891,14 @@ class MoneyTrackerApp {
           <div style="margin-top:1rem;">
             <label class="stat-label">Account Target</label>
             <select id="importAccountTarget">
-              <option value="CHECKING">Checking 0199</option>
-              <option value="SAVINGS">Savings 3703</option>
+              <option value="CHECKING">Checking</option>
+              <option value="SAVINGS">Savings</option>
             </select>
           </div>
           <div id="importPreview" style="margin-top:1rem;"></div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
             <button class="btn" data-action="closeModal">Cancel</button>
-            <button class="btn btn-primary" id="commitImportBtn" data-action="commitImport" disabled>Commit Import</button>
+            <button class="btn btn-primary" id="commitImportBtn" data-action="commitImport" disabled>Commit</button>
           </div>
         </div>
       </div>`);
@@ -1743,8 +1923,7 @@ class MoneyTrackerApp {
   commitImport() {
     if (!this.stagedFiles.length) return;
     const target = document.getElementById('importAccountTarget').value;
-    let count = 0;
-    let pending = this.stagedFiles.length;
+    let count = 0, pending = this.stagedFiles.length;
     this.stagedFiles.forEach(file => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -1796,7 +1975,7 @@ class MoneyTrackerApp {
           </div>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
             <div><label class="stat-label">Account</label><select id="pendingAccount">
-              <option value="CHECKING">Checking 0199</option><option value="SAVINGS">Savings 3703</option>
+              <option value="CHECKING">Checking</option><option value="SAVINGS">Savings</option>
             </select></div>
             <div><label class="stat-label">Date</label><input type="date" id="pendingDate" value="${new Date().toISOString().split('T')[0]}"></div>
             <div><label class="stat-label">Description</label><input type="text" id="pendingDesc"></div>
@@ -1835,7 +2014,7 @@ class MoneyTrackerApp {
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Vault Name</label><input type="text" id="vaultName" placeholder="e.g. Vacation Fund"></div>
+            <div><label class="stat-label">Vault Name</label><input type="text" id="vaultName"></div>
             <div><label class="stat-label">Initial Balance ($)</label><input type="number" step="0.01" id="vaultInitialBalance" value="0"></div>
           </div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
@@ -1869,8 +2048,8 @@ class MoneyTrackerApp {
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
             <div><label class="stat-label">From Account</label>
               <select id="transferFromAccount">
-                <option value="CHECKING">Checking 0199</option>
-                <option value="SAVINGS">Savings 3703</option>
+                <option value="CHECKING">Checking</option>
+                <option value="SAVINGS">Savings</option>
               </select></div>
             <div><label class="stat-label">Amount ($)</label><input type="number" step="0.01" id="transferAmount"></div>
           </div>
@@ -1999,9 +2178,9 @@ class MoneyTrackerApp {
             <div><label class="stat-label">Current Balance ($)</label><input type="number" step="0.01" id="loanBalance"></div>
             <div><label class="stat-label">Interest Rate (%)</label><input type="number" step="0.01" id="loanRate"></div>
             <div><label class="stat-label">Minimum Monthly Payment ($)</label><input type="number" step="0.01" id="loanMinPayment"></div>
-            <div><label class="stat-label">Escrow / Taxes / Insurance ($)</label><input type="number" step="0.01" id="loanEscrow" value="0"></div>
+            <div><label class="stat-label">Escrow ($)</label><input type="number" step="0.01" id="loanEscrow" value="0"></div>
             <div><label class="stat-label">Term (Years)</label><input type="number" id="loanTerm" value="30"></div>
-            <div><label class="stat-label">Payment Filter (Description Keyword)</label><input type="text" id="loanFilter" placeholder="e.g. MORTGAGE"></div>
+            <div><label class="stat-label">Payment Filter</label><input type="text" id="loanFilter" placeholder="e.g. MORTGAGE"></div>
           </div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
             <button class="btn" data-action="closeModal">Cancel</button>
@@ -2028,7 +2207,6 @@ class MoneyTrackerApp {
     this.saveState();
     this.closeModal();
     this.renderTabContent('debts');
-    this.showToast(`Added loan "${name}"`);
   }
 
   openEditLoanModal(btn) {
@@ -2120,9 +2298,7 @@ class MoneyTrackerApp {
           </div>
           <div style="display:flex; flex-direction:column; gap:0.85rem;">
             <div><label class="stat-label">Name</label><input type="text" id="scenarioNameInput"></div>
-            <div><label class="stat-label">Monthly Impact ($)</label><input type="number" step="0.01" id="scenarioAmountInput">
-              <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.25rem;">Negative for expenses, positive for income.</div>
-            </div>
+            <div><label class="stat-label">Monthly Impact ($)</label><input type="number" step="0.01" id="scenarioAmountInput"></div>
           </div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
             <button class="btn" data-action="closeModal">Cancel</button>
@@ -2246,7 +2422,6 @@ class MoneyTrackerApp {
     }
     this.saveState();
     this.closeModal();
-    this.syncForecaster();
     this.renderTabContent('calendar');
     this.showToast(`Added ${count} recurring items`);
   }
@@ -2274,6 +2449,10 @@ class MoneyTrackerApp {
     reader.onload = (e) => {
       try {
         this.state = JSON.parse(e.target.result);
+        // Ensure taxStates exists after import
+        if (!this.state.taxStates || !this.state.taxStates.length) {
+          this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+        }
         this.saveState();
         this.recalculateBalances();
         this.init();
@@ -2286,7 +2465,7 @@ class MoneyTrackerApp {
   clearAllData() {
     if (!confirm('Are you sure you want to CLEAR ALL data?')) return;
     if (!confirm('DOUBLE CONFIRMATION: This will permanently reset everything.')) return;
-    localStorage.removeItem('MONEY_TRACKER_STATE_V2');
+    localStorage.removeItem('MONEY_TRACKER_STATE_V3');
     this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
     this.selectedRows.clear();
     this.init();
