@@ -403,7 +403,7 @@ class MoneyTrackerApp {
         <div class="card">
           <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="20" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="0" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
