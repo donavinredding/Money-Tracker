@@ -1022,21 +1022,29 @@ class MoneyTrackerApp {
     if (simControls) {
       if (loans.length > 0) {
         simControls.innerHTML = `
-          <div style="margin-bottom:1rem;">
-            <label class="stat-label">Loan</label>
-            <select id="simLoanSelect" onchange="app.renderDebtSimulation()">
-              ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} ($${(parseFloat(l.balance)||0).toFixed(2)})</option>`).join('')}
-            </select>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-              <div><label class="stat-label">Extra Payment ($)</label>
-                <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()"></div>
-              <div><label class="stat-label">P&I Payment ($)</label>
-                <input type="number" id="simMinPayment" value="0" readonly style="opacity:0.7;"></div>
-            </div>
-            <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
-              Enter P&I portion (exclude escrow) for accurate simulation.
-            </div>
-          </div>`;
+  <div style="margin-bottom:1rem;">
+    <label class="stat-label">Loan</label>
+    <select id="simLoanSelect" onchange="app.onSimLoanChange()">
+      ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} ($${(parseFloat(l.balance)||0).toFixed(2)})</option>`).join('')}
+    </select>
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
+      <div><label class="stat-label">Extra Payment ($)</label>
+        <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()"></div>
+      <div>
+        <label class="stat-label" style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+          <span>Principal &amp; Interest ($)</span>
+          <button type="button" class="btn btn-sm"
+                  style="padding:2px 8px; font-size:10px; line-height:1;"
+                  onclick="app.autoCalcPI()"
+                  title="Recalculate from balance, rate & term">Auto</button>
+        </label>
+        <input type="number" id="simMinPayment" value="0" oninput="app.markPIManual()">
+      </div>
+    </div>
+    <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
+      Principal &amp; Interest is your loan payment <em>excluding</em> escrow (taxes &amp; insurance).
+    </div>
+  </div>`;
         this.renderDebtSimulation();
       } else {
         simControls.innerHTML = '';
@@ -1045,108 +1053,113 @@ class MoneyTrackerApp {
   }
 
   renderDebtSimulation() {
-    const loans = this.state.loans || [];
-    if (!loans.length) return;
-    const sel = document.getElementById('simLoanSelect');
-    if (!sel) return;
-    const loan = loans.find(l => l.id === sel.value);
-    if (!loan) return;
+  const loans = this.state.loans || [];
+  if (!loans.length) return;
+  const sel = document.getElementById('simLoanSelect');
+  if (!sel) return;
+  const loan = loans.find(l => l.id === sel.value);
+  if (!loan) return;
 
-    const bal = parseFloat(loan.balance) || 0;
-    const rate = parseFloat(loan.rate) || 0;
-    const minPay = parseFloat(loan.minPayment) || 0;
-    const escrow = parseFloat(loan.escrow) || 0;
-    const pi = Math.max(0, minPay - escrow);
+  const bal    = parseFloat(loan.balance) || 0;
+  const rate   = parseFloat(loan.rate) || 0;
+  const minPay = parseFloat(loan.minPayment) || 0;
+  const escrow = parseFloat(loan.escrow) || 0;
+  const term   = parseFloat(loan.termYears) || 30;
 
-    const piEl = document.getElementById('simMinPayment');
-    if (piEl) piEl.value = pi.toFixed(2);
+  // --- Determine P&I ---
+  // Priority: 1) user manual override, 2) stored loan.piPayment,
+  //           3) minPay - escrow IF it covers interest, 4) auto-calc from terms
+  const monthlyInterest = bal * (rate / 100 / 12);
+  const derivedPI = Math.max(0, minPay - escrow);
+  const autoPI = this.calculatePI(bal, rate, term);
 
-    const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
+  let pi;
+  if (this._piManual) {
+    pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
+  } else if (loan.piPayment != null && loan.piPayment > 0) {
+    pi = parseFloat(loan.piPayment);
+  } else if (derivedPI > monthlyInterest) {
+    pi = derivedPI;
+  } else {
+    pi = autoPI;
+  }
 
-    const result = this.calculatePayoff(bal, rate, pi, extra);
-    const minResult = this.calculatePayoff(bal, rate, pi, 0);
-    const interestSaved = minResult.totalInterest - result.totalInterest;
-    const monthsSaved = minResult.months - result.months;
+  const piEl = document.getElementById('simMinPayment');
+  if (piEl && !this._piManual) piEl.value = pi.toFixed(2);
 
-    const yr = Math.floor(result.months / 12), mo = result.months % 12;
-    const payoff = yr > 0 ? `${yr} yr, ${mo} mo` : `${mo} mo`;
+  const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
 
+  // If payment can't cover interest, show a clear message instead of 999s
+  if (pi + extra <= monthlyInterest) {
+    const needed = (monthlyInterest + 1).toFixed(2);
     const resEl = document.getElementById('loanSimResults');
     if (resEl) resEl.innerHTML = `
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div><div class="stat-label">Payoff Time</div>
-          <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.1rem;">${payoff}</div>
-          <div class="stat-subtext">${monthsSaved > 0 ? `Save ${monthsSaved} months!` : 'No change'}</div></div>
-        <div><div class="stat-label">Total Interest</div>
-          <div class="stat-value mono" style="color:var(--accent-negative); font-size:1.1rem;">$${result.totalInterest.toFixed(2)}</div>
-          <div class="stat-subtext" style="color:var(--accent-positive);">${interestSaved > 0 ? `Save $${interestSaved.toFixed(2)}!` : 'No change'}</div></div>
+      <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm);">
+        <div class="stat-label" style="color:var(--red);">⚠ Payment too low</div>
+        <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
+          Your P&I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
+          of <span class="mono">$${monthlyInterest.toFixed(2)}</span>. The loan would never pay off.
+        </div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">
+          For a ${term}-year payoff at ${rate}%, the P&amp;I should be about
+          <span class="mono" style="color:var(--accent-primary);">$${autoPI.toFixed(2)}</span>.
+          Click <strong>Auto</strong> above to use that value.
+        </div>
       </div>`;
-
-    this.renderDebtChart(result.schedule, minResult.schedule);
+    this.renderDebtChart([], []);
+    return;
   }
 
-  calculatePayoff(principal, annualRate, minPayment, extraPayment) {
-    let balance = principal;
-    const monthlyRate = (annualRate / 100) / 12;
-    const totalPay = minPayment + extraPayment;
-    let totalInterest = 0, months = 0;
-    const schedule = [{ month: 0, balance: principal }];
-    if (totalPay <= 0 || totalPay <= balance * monthlyRate) {
-      return { months: 999, totalInterest: 999999, schedule: [] };
-    }
-    while (balance > 0 && months < 600) {
-      const interest = balance * monthlyRate;
-      const principalPaid = totalPay - interest;
-      balance -= principalPaid;
-      totalInterest += interest;
-      months++;
-      schedule.push({ month: months, balance: Math.max(0, balance) });
-    }
-    return { months, totalInterest, schedule };
+  const result = this.calculatePayoff(bal, rate, pi, extra);
+  const minResult = this.calculatePayoff(bal, rate, pi, 0);
+  const interestSaved = Math.max(0, minResult.totalInterest - result.totalInterest);
+  const monthsSaved = Math.max(0, minResult.months - result.months);
+
+  const yr = Math.floor(result.months / 12), mo = result.months % 12;
+  const payoff = yr > 0 ? `${yr} yr, ${mo} mo` : `${mo} mo`;
+
+  const resEl = document.getElementById('loanSimResults');
+  if (resEl) resEl.innerHTML = `
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+      <div><div class="stat-label">Payoff Time</div>
+        <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.1rem;">${payoff}</div>
+        <div class="stat-subtext">${monthsSaved > 0 ? `Save ${monthsSaved} months!` : 'No change'}</div></div>
+      <div><div class="stat-label">Total Interest</div>
+        <div class="stat-value mono" style="color:var(--accent-negative); font-size:1.1rem;">$${result.totalInterest.toFixed(2)}</div>
+        <div class="stat-subtext" style="color:var(--accent-positive);">${interestSaved > 0 ? `Save $${interestSaved.toFixed(2)}!` : 'No change'}</div></div>
+    </div>`;
+
+  this.renderDebtChart(result.schedule, minResult.schedule);
   }
 
-  renderDebtChart(schedule, minSchedule) {
-    const canvas = document.getElementById('debtChart');
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = 220 * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    ctx.clearRect(0, 0, rect.width, 220);
+  // Standard amortized monthly payment formula: M = P·r(1+r)^n / ((1+r)^n − 1)
+calculatePI(balance, annualRate, termYears) {
+  const r = (annualRate / 100) / 12;
+  const n = termYears * 12;
+  if (balance <= 0 || n <= 0) return 0;
+  if (r === 0) return balance / n;
+  const factor = Math.pow(1 + r, n);
+  return balance * r * factor / (factor - 1);
+}
 
-    if (!schedule || schedule.length === 0) {
-      ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
-      ctx.fillText('Payment is too low to cover interest.', rect.width / 2, 110); return;
-    }
-    const maxM = Math.max(schedule.length, minSchedule.length);
-    const maxB = schedule[0].balance;
-    const startY = 30, endY = 180, ch = endY - startY;
-    const getX = m => 50 + (m / maxM) * (rect.width - 70);
-    const getY = b => endY - ((b - 0) / (maxB - 0)) * ch;
+// Called when the user switches to a different loan in the dropdown
+onSimLoanChange() {
+  this._piManual = false;
+  this.renderDebtSimulation();
+}
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
-    ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
-    for (let i = 0; i <= 4; i++) {
-      const y = startY + (ch / 4) * i;
-      ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(rect.width - 20, y); ctx.stroke();
-      const val = maxB - (maxB / 4) * i;
-      ctx.fillText(this.fmt(val), 45, y + 3);
-    }
-    ctx.textAlign = 'center';
-    const totalY = Math.ceil(maxM / 12);
-    const yStep = Math.max(1, Math.ceil(totalY / 5));
-    for (let y = 0; y <= totalY; y += yStep) {
-      ctx.fillText(`Yr ${y}`, getX(y * 12), endY + 18);
-    }
-    ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2;
-    minSchedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-    ctx.stroke();
-    ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
-    schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-    ctx.stroke();
-  }
+// Called when the user clicks the "Auto" button
+autoCalcPI() {
+  this._piManual = false;
+  this.renderDebtSimulation();
+  this.showToast('P&I recalculated from loan terms');
+}
+
+// Called when the user edits the P&I field by hand
+markPIManual() {
+  this._piManual = true;
+  this.debouncedDebtSim();
+}
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
