@@ -1,6 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 4
-   Progressive Tax Brackets + State Manager
+   MONEY TRACKER APP - STEP 5
+   Redesigned Debt Payoff Page + Scenario Types
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -54,7 +54,6 @@ const CATEGORY_RULES = [
   { contains: "SAM'S CLUB", category: "Shopping", flow: "Flexible Spending" }
 ];
 
-// Default tax states — user can add more via the UI
 const MAX_BRACKET = 999999999;
 const DEFAULT_TAX_STATES = [
   {
@@ -122,19 +121,12 @@ class MoneyTrackerApp {
         p.vaults = p.vaults || []; p.pendingItems = p.pendingItems || [];
         p.transactions = p.transactions || [];
         p.scenarios = p.scenarios || [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }];
-        // Migrate old scenarios to include a `type` field
         p.scenarios.forEach(s => { if (!s.type) s.type = 'custom'; });
         p.suggestedVaults = p.suggestedVaults || []; p.nicknameRules = p.nicknameRules || [];
         p.loans = p.loans || [];
         p.accounts = p.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
-        // Sanitize account names (remove old account numbers)
-        if (p.accounts.CHECKING) {
-          p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
-        }
-        if (p.accounts.SAVINGS) {
-          p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
-        }
-        // Ensure taxStates exists and has defaults
+        if (p.accounts.CHECKING) p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
+        if (p.accounts.SAVINGS) p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
         if (!p.taxStates || !Array.isArray(p.taxStates) || p.taxStates.length === 0) {
           p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
@@ -220,6 +212,10 @@ class MoneyTrackerApp {
           this.searchQuery = e.target.value.toLowerCase();
           this.renderCheckingTable();
         }, 300);
+      }
+      // Loan editor live total update
+      if (e.target.matches('#loanPI') || e.target.matches('#loanEscrow')) {
+        this.updateLoanEditorTotal();
       }
     });
 
@@ -376,7 +372,7 @@ class MoneyTrackerApp {
     return `
       <section class="view-container active">
         <div class="stat-header" id="debtStats"></div>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">Your Debts</h3>
@@ -391,7 +387,7 @@ class MoneyTrackerApp {
             </div>
             <div id="loanSimControls"></div>
             <div id="loanSimResults"></div>
-            <canvas id="debtChart" height="200" style="width:100%; display:block; margin-top:1rem;"></canvas>
+            <canvas id="debtChart" height="220" style="width:100%; display:block; margin-top:1rem;"></canvas>
           </div>
         </div>
       </section>`;
@@ -568,6 +564,28 @@ class MoneyTrackerApp {
   debouncedDebtSim() {
     if (this._dsT) clearTimeout(this._dsT);
     this._dsT = setTimeout(() => this.renderDebtSimulation(), 250);
+  }
+
+  /* ============ HELPERS ============ */
+  money(v, opts) {
+    const n = parseFloat(v) || 0;
+    return '$' + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  getPayoffDate(monthsFromNow) {
+    const d = new Date();
+    d.setMonth(d.getMonth() + (parseInt(monthsFromNow) || 0));
+    return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  getLoanPI(loan) {
+    if (!loan) return 0;
+    const total = parseFloat(loan.minPayment) || 0;
+    const escrow = parseFloat(loan.escrow) || 0;
+    const derived = Math.max(0, total - escrow);
+    if (derived > 0) return derived;
+    // Fallback: auto-calc from terms
+    return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, parseFloat(loan.termYears) || 30);
   }
 
   /* ============ PROGRESSIVE TAX ENGINE ============ */
@@ -750,8 +768,7 @@ class MoneyTrackerApp {
     return this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated');
   }
 
-  /* ============ RECURRING GROUPS (for scenarios) ============ */
-  // Returns array of { groupId, description, category, amount, monthly, ruleConfig, count }
+  /* ============ RECURRING GROUPS ============ */
   getRecurringGroups(categoryFilter) {
     const groups = new Map();
     (this.state.transactions || []).forEach(t => {
@@ -783,22 +800,18 @@ class MoneyTrackerApp {
 
   getRecurringGroupInfo(groupId) {
     if (!groupId) return null;
-    const all = this.getRecurringGroups(null);
-    return all.find(g => g.groupId === groupId) || null;
+    return this.getRecurringGroups(null).find(g => g.groupId === groupId) || null;
   }
 
-  /* ============ SCENARIO IMPACT CALCULATOR ============ */
-  // Returns the signed monthly delta this scenario applies to the forecast net.
+  /* ============ SCENARIO IMPACT ============ */
   computeScenarioImpact(scenario) {
     if (!scenario || !scenario.active) return 0;
     const type = scenario.type || 'custom';
 
-    // Custom & Recurring: raw amount added to net
     if (type === 'custom' || type === 'recurring') {
       return parseFloat(scenario.amount) || 0;
     }
 
-    // Paycheck & Bill: replace an existing recurring group's monthly amount
     if (type === 'paycheck' || type === 'bill') {
       const info = this.getRecurringGroupInfo(scenario.groupId);
       if (!info) return 0;
@@ -812,12 +825,9 @@ class MoneyTrackerApp {
       else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
       const monthlyOld = Math.abs(info.monthly);
       const delta = monthlyNew - monthlyOld;
-      // Paycheck raises/lowers income → positive delta raises net.
-      // Bill raises/lowers expense → positive delta on the bill lowers net, so negate.
       return type === 'paycheck' ? delta : -delta;
     }
 
-    // Loan: subtract the monthly P&I as an expense
     if (type === 'loan') {
       const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
       if (!loan) return 0;
@@ -825,8 +835,7 @@ class MoneyTrackerApp {
       const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
       const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
       const term = parseFloat(ov.termYears != null ? ov.termYears : loan.termYears) || 30;
-      const pi = this.calculatePI(bal, rate, term);
-      return -pi;
+      return -this.calculatePI(bal, rate, term);
     }
 
     return 0;
@@ -992,7 +1001,6 @@ class MoneyTrackerApp {
         if (dayTxs.length > 0) {
           const total = dayTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
-          // Combined info block: count badge + net amount (matches mobile)
           const info = document.createElement('div');
           info.style.display = 'flex';
           info.style.flexDirection = 'column';
@@ -1095,60 +1103,72 @@ class MoneyTrackerApp {
     document.getElementById('dayDrawer')?.classList.remove('active');
   }
 
-  /* ============ DEBTS ============ */
+  /* ============================================================
+     DEBTS — REDESIGNED
+     ============================================================ */
   renderDebtsView() {
     const loans = this.state.loans || [];
     const total = loans.reduce((s, l) => s + (parseFloat(l.balance) || 0), 0);
     const stats = document.getElementById('debtStats');
     if (stats) stats.innerHTML = `
       <div class="stat-card"><div class="stat-label">Total Outstanding Debt</div>
-        <div class="stat-value mono" style="color:var(--accent-negative)">$${total.toFixed(2)}</div>
+        <div class="stat-value mono" style="color:var(--accent-negative)">$${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
         <div class="stat-subtext">${loans.length} active loan(s)</div></div>`;
 
     const list = document.getElementById('loanList');
     if (list) {
-      list.innerHTML = loans.length ? loans.map(l => {
-        const bal = parseFloat(l.balance) || 0;
-        return `<div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0; border-bottom:1px solid var(--border-subtle); gap:0.5rem;">
-          <div style="min-width:0;">
-            <div style="font-weight:600;">${this.escapeHtml(l.name)}</div>
-            <div style="font-size:0.75rem; color:var(--text-dim)">${l.rate || 0}% APR • ${l.termYears || 'N/A'} yr</div>
-          </div>
-          <div style="display:flex; align-items:center; gap:0.5rem;">
-            <span class="mono" style="font-weight:700; color:var(--accent-negative); background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${bal.toFixed(2)}</span>
-            <button class="btn btn-sm" data-action="openEditLoanModal" data-loan-id="${l.id}">⚙️</button>
-          </div>
-        </div>`;
-      }).join('') : '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No loans yet.</div>';
+      if (!loans.length) {
+        list.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No loans yet. Click "+ Add Loan".</div>';
+      } else {
+        list.innerHTML = loans.map(l => {
+          const bal = parseFloat(l.balance) || 0;
+          const rate = parseFloat(l.rate) || 0;
+          const term = parseFloat(l.termYears) || 30;
+          const totalPmt = parseFloat(l.minPayment) || 0;
+          const escrow = parseFloat(l.escrow) || 0;
+          const pi = Math.max(0, totalPmt - escrow);
+          const autoPI = this.calculatePI(bal, rate, term);
+          const piDisplay = pi > 0 ? pi : autoPI;
+
+          return `
+            <div style="padding:1rem 0; border-bottom:1px solid var(--border-subtle);">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:0.5rem; margin-bottom:0.75rem;">
+                <div style="min-width:0;">
+                  <div style="font-weight:700; font-size:1rem;">${this.escapeHtml(l.name)}</div>
+                  <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+                    ${rate}% APR · ${term} yr · Filter: ${this.escapeHtml(l.paymentFilter || '—')}
+                  </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+                  <span class="mono" style="font-weight:700; font-size:1.05rem; color:var(--accent-negative);">
+                    $${bal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  </span>
+                  <button class="btn btn-sm" data-action="openEditLoanModal" data-loan-id="${l.id}">⚙️</button>
+                </div>
+              </div>
+              <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
+                  <span style="color:var(--text-muted); font-size:0.75rem; letter-spacing:0.04em; text-transform:uppercase;">Monthly Payment</span>
+                  <span class="mono" style="font-weight:700; font-size:0.9rem;">$${totalPmt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding-left:0.75rem; font-size:0.75rem; margin-bottom:0.2rem;">
+                  <span style="color:var(--text-dim);">├─ Principal &amp; Interest</span>
+                  <span class="mono" style="color:var(--accent-primary); font-weight:600;">$${piDisplay.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                </div>
+                <div style="display:flex; justify-content:space-between; padding-left:0.75rem; font-size:0.75rem;">
+                  <span style="color:var(--text-dim);">└─ Escrow (taxes + insurance)</span>
+                  <span class="mono" style="color:var(--text-muted);">$${escrow.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                </div>
+              </div>
+            </div>`;
+        }).join('');
+      }
     }
 
     const simControls = document.getElementById('loanSimControls');
     if (simControls) {
       if (loans.length > 0) {
-        simControls.innerHTML = `
-  <div style="margin-bottom:1rem;">
-    <label class="stat-label">Loan</label>
-    <select id="simLoanSelect" onchange="app.onSimLoanChange()">
-      ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} ($${(parseFloat(l.balance)||0).toFixed(2)})</option>`).join('')}
-    </select>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-      <div><label class="stat-label">Extra Payment ($)</label>
-        <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()"></div>
-      <div>
-        <label class="stat-label" style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
-          <span>Principal &amp; Interest ($)</span>
-          <button type="button" class="btn btn-sm"
-                  style="padding:2px 8px; font-size:10px; line-height:1;"
-                  onclick="app.autoCalcPI()"
-                  title="Recalculate from balance, rate & term">Auto</button>
-        </label>
-        <input type="number" id="simMinPayment" value="0" oninput="app.markPIManual()">
-      </div>
-    </div>
-    <div style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
-      Principal &amp; Interest is your loan payment <em>excluding</em> escrow (taxes &amp; insurance).
-    </div>
-  </div>`;
+        simControls.innerHTML = this.buildSimControlsHTML(loans);
         this.renderDebtSimulation();
       } else {
         simControls.innerHTML = '';
@@ -1156,86 +1176,192 @@ class MoneyTrackerApp {
     }
   }
 
-  renderDebtSimulation() {
-  const loans = this.state.loans || [];
-  if (!loans.length) return;
-  const sel = document.getElementById('simLoanSelect');
-  if (!sel) return;
-  const loan = loans.find(l => l.id === sel.value);
-  if (!loan) return;
-
-  const bal    = parseFloat(loan.balance) || 0;
-  const rate   = parseFloat(loan.rate) || 0;
-  const minPay = parseFloat(loan.minPayment) || 0;
-  const escrow = parseFloat(loan.escrow) || 0;
-  const term   = parseFloat(loan.termYears) || 30;
-
-  // --- Determine P&I ---
-  // Priority: 1) user manual override, 2) stored loan.piPayment,
-  //           3) minPay - escrow IF it covers interest, 4) auto-calc from terms
-  const monthlyInterest = bal * (rate / 100 / 12);
-  const derivedPI = Math.max(0, minPay - escrow);
-  const autoPI = this.calculatePI(bal, rate, term);
-
-  let pi;
-  if (this._piManual) {
-    pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
-  } else if (loan.piPayment != null && loan.piPayment > 0) {
-    pi = parseFloat(loan.piPayment);
-  } else if (derivedPI > monthlyInterest) {
-    pi = derivedPI;
-  } else {
-    pi = autoPI;
-  }
-
-  const piEl = document.getElementById('simMinPayment');
-  if (piEl && !this._piManual) piEl.value = pi.toFixed(2);
-
-  const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
-
-  // If payment can't cover interest, show a clear message instead of 999s
-  if (pi + extra <= monthlyInterest) {
-    const resEl = document.getElementById('loanSimResults');
-    if (resEl) resEl.innerHTML = `
-      <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm);">
-        <div class="stat-label" style="color:var(--red);">⚠ Payment too low</div>
-        <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
-          Your P&I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
-          of <span class="mono">$${monthlyInterest.toFixed(2)}</span>. The loan would never pay off.
+  buildSimControlsHTML(loans) {
+    return `
+      <div style="margin-bottom:1rem;">
+        <label class="stat-label">Loan</label>
+        <select id="simLoanSelect" onchange="app.onSimLoanChange()">
+          ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} — $${(parseFloat(l.balance)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+        <div>
+          <label class="stat-label" style="display:flex; justify-content:space-between; align-items:center; gap:6px;">
+            <span>P&amp;I Payment ($)</span>
+            <button type="button" class="btn btn-sm"
+                    style="padding:2px 8px; font-size:10px; line-height:1;"
+                    onclick="app.autoCalcPI()"
+                    title="Recalculate from balance, rate & term">Auto</button>
+          </label>
+          <input type="number" id="simMinPayment" value="0" oninput="app.markPIManual()">
         </div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">
-          For a ${term}-year payoff at ${rate}%, the P&amp;I should be about
-          <span class="mono" style="color:var(--accent-primary);">$${autoPI.toFixed(2)}</span>.
-          Click <strong>Auto</strong> above to use that value.
+        <div>
+          <label class="stat-label">Extra Payment ($)</label>
+          <input type="number" id="simExtraPayment" value="0" oninput="app.debouncedDebtSim()">
         </div>
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem; line-height:1.4;">
+        <strong style="color:var(--text-muted);">P&amp;I</strong> is the part of your payment that pays down the loan.
+        Escrow (taxes &amp; insurance) is separate and doesn't affect payoff.
       </div>`;
-    this.renderDebtChart([], []);
-    return;
   }
 
-  const result = this.calculatePayoff(bal, rate, pi, extra);
-  const minResult = this.calculatePayoff(bal, rate, pi, 0);
-  const interestSaved = Math.max(0, minResult.totalInterest - result.totalInterest);
-  const monthsSaved = Math.max(0, minResult.months - result.months);
-
-  const yr = Math.floor(result.months / 12), mo = result.months % 12;
-  const payoff = yr > 0 ? `${yr} yr, ${mo} mo` : `${mo} mo`;
-
-  const resEl = document.getElementById('loanSimResults');
-  if (resEl) resEl.innerHTML = `
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-      <div><div class="stat-label">Payoff Time</div>
-        <div class="stat-value mono" style="color:var(--accent-primary); font-size:1.1rem;">${payoff}</div>
-        <div class="stat-subtext">${monthsSaved > 0 ? `Save ${monthsSaved} months!` : 'No change'}</div></div>
-      <div><div class="stat-label">Total Interest</div>
-        <div class="stat-value mono" style="color:var(--accent-negative); font-size:1.1rem;">$${result.totalInterest.toFixed(2)}</div>
-        <div class="stat-subtext" style="color:var(--accent-positive);">${interestSaved > 0 ? `Save $${interestSaved.toFixed(2)}!` : 'No change'}</div></div>
-    </div>`;
-
-  this.renderDebtChart(result.schedule, minResult.schedule);
+  // Live-computes the total in the loan editor as the user types
+  updateLoanEditorTotal() {
+    const pi = parseFloat(document.getElementById('loanPI')?.value) || 0;
+    const esc = parseFloat(document.getElementById('loanEscrow')?.value) || 0;
+    const el = document.getElementById('loanTotalDisplay');
+    if (el) el.innerText = '$' + (pi + esc).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  // Standard amortized monthly payment formula: M = P·r(1+r)^n / ((1+r)^n − 1)
+  renderDebtSimulation() {
+    const loans = this.state.loans || [];
+    if (!loans.length) return;
+    const sel = document.getElementById('simLoanSelect');
+    if (!sel) return;
+    const loan = loans.find(l => l.id === sel.value);
+    if (!loan) return;
+
+    const bal = parseFloat(loan.balance) || 0;
+    const rate = parseFloat(loan.rate) || 0;
+    const escrow = parseFloat(loan.escrow) || 0;
+    const term = parseFloat(loan.termYears) || 30;
+
+    const monthlyInterest = bal * (rate / 100 / 12);
+    const autoPI = this.calculatePI(bal, rate, term);
+    const storedPI = this.getLoanPI(loan);
+
+    // P&I: manual override > stored > auto
+    let pi;
+    if (this._piManual) {
+      pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
+    } else if (storedPI > 0 && storedPI > monthlyInterest) {
+      pi = storedPI;
+    } else {
+      pi = autoPI;
+    }
+
+    const piEl = document.getElementById('simMinPayment');
+    if (piEl && !this._piManual) piEl.value = pi.toFixed(2);
+
+    const extra = parseFloat(document.getElementById('simExtraPayment')?.value) || 0;
+    const totalMonthly = pi + extra;
+
+    const resEl = document.getElementById('loanSimResults');
+    if (!resEl) return;
+
+    // Guard: if payment can't cover interest, show a red warning box
+    if (totalMonthly <= monthlyInterest || pi <= 0) {
+      resEl.innerHTML = `
+        <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm); margin-top:1rem;">
+          <div class="stat-label" style="color:var(--red);">⚠ Payment too low to cover interest</div>
+          <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
+            Your P&amp;I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
+            of <span class="mono">$${monthlyInterest.toFixed(2)}</span>, so the loan would never pay off.
+          </div>
+          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">
+            For a ${term}-year payoff at ${rate}%, the P&amp;I should be about
+            <span class="mono" style="color:var(--accent-primary); font-weight:600;">$${autoPI.toFixed(2)}</span>.
+            Click <strong>Auto</strong> above to use that value.
+          </div>
+        </div>`;
+      this.renderDebtChart([], []);
+      return;
+    }
+
+    const result = this.calculatePayoff(bal, rate, pi, extra);
+    const baseline = this.calculatePayoff(bal, rate, pi, 0);
+    const interestSaved = Math.max(0, baseline.totalInterest - result.totalInterest);
+    const monthsSaved = Math.max(0, baseline.months - result.months);
+
+    const yr = Math.floor(result.months / 12);
+    const mo = result.months % 12;
+    const monthsLabel = yr > 0 ? `${yr} yr${yr !== 1 ? 's' : ''}, ${mo} mo` : `${mo} mo`;
+    const payoffDate = this.getPayoffDate(result.months);
+
+    const yrBaseline = Math.floor(baseline.months / 12);
+    const moBaseline = baseline.months % 12;
+    const baselineMonthsLabel = yrBaseline > 0 ? `${yrBaseline} yr${yrBaseline !== 1 ? 's' : ''}, ${moBaseline} mo` : `${moBaseline} mo`;
+    const baselinePayoffDate = this.getPayoffDate(baseline.months);
+
+    // First-month breakdown
+    const interestMonth1 = monthlyInterest;
+    const principalMonth1 = Math.max(0, pi - interestMonth1);
+
+    // Lifetime totals
+    const totalPaid = bal + result.totalInterest;
+    const interestRatio = bal > 0 ? (result.totalInterest / bal) * 100 : 0;
+
+    const hasExtra = extra > 0;
+
+    resEl.innerHTML = `
+      <!-- PAYOFF DATE -->
+      <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-md); padding:1rem 1.1rem;">
+        <div class="stat-label" style="font-size:0.7rem;">PAYOFF DATE</div>
+        <div class="mono" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary); line-height:1.1; margin-top:2px;">${payoffDate}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">In ${monthsLabel} from now</div>
+      </div>
+
+      <!-- MONTH-BY-MONTH (first payment) -->
+      <div style="margin-top:1rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTH 1 BREAKDOWN</div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Your payment</span>
+          <span class="mono" style="font-weight:600;">$${(pi + extra).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">├─ Goes to interest</span>
+          <span class="mono" style="color:var(--accent-negative);">$${interestMonth1.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">└─ Goes to principal</span>
+          <span class="mono" style="color:var(--accent-positive);">$${(principalMonth1 + extra).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+      </div>
+
+      <!-- LIFETIME TOTALS -->
+      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">LIFETIME TOTALS</div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Total you'll pay</span>
+          <span class="mono" style="font-weight:600;">$${totalPaid.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Total interest</span>
+          <span class="mono" style="color:var(--accent-negative); font-weight:600;">$${result.totalInterest.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.8rem; padding:0.15rem 0; border-top:1px solid var(--border-subtle); margin-top:0.4rem; padding-top:0.5rem;">
+          <span style="color:var(--text-dim);">Interest as % of loan</span>
+          <span class="mono" style="color:var(--text-muted);">${interestRatio.toFixed(1)}%</span>
+        </div>
+      </div>
+
+      ${hasExtra ? `
+      <!-- COMPARISON -->
+      <div style="margin-top:0.75rem; background:rgba(0,255,157,0.06); border:1px solid rgba(0,255,157,0.25); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem; color:var(--accent-positive);">✓ WITH $${extra.toFixed(2)} EXTRA / MO</div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Payoff instead of</span>
+          <span class="mono" style="color:var(--text-muted); text-decoration:line-through;">${baselinePayoffDate}</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Payoff sooner by</span>
+          <span class="mono" style="color:var(--accent-positive); font-weight:700;">${monthsSaved} mo (${(monthsSaved/12).toFixed(1)} yr)</span>
+        </div>
+        <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">Interest saved</span>
+          <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+      </div>` : `
+      <!-- HINT -->
+      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
+        💡 Try entering an <strong>Extra Payment</strong> above to see how much time and interest you can save.
+      </div>`}
+    `;
+
+    this.renderDebtChart(result.schedule, baseline.schedule);
+  }
+
   calculatePI(balance, annualRate, termYears) {
     const r = (annualRate / 100) / 12;
     const n = termYears * 12;
@@ -1245,20 +1371,20 @@ class MoneyTrackerApp {
     return balance * r * factor / (factor - 1);
   }
 
-  // Called when the user switches to a different loan in the dropdown
   onSimLoanChange() {
     this._piManual = false;
+    const sel = document.getElementById('simLoanSelect');
+    const extraEl = document.getElementById('simExtraPayment');
+    if (extraEl) extraEl.value = '0';
     this.renderDebtSimulation();
   }
 
-  // Called when the user clicks the "Auto" button
   autoCalcPI() {
     this._piManual = false;
     this.renderDebtSimulation();
     this.showToast('P&I recalculated from loan terms');
   }
 
-  // Called when the user edits the P&I field by hand
   markPIManual() {
     this._piManual = true;
     this.debouncedDebtSim();
@@ -1273,9 +1399,10 @@ class MoneyTrackerApp {
     if (totalPay <= 0 || totalPay <= balance * monthlyRate) {
       return { months: 999, totalInterest: 999999, schedule: [] };
     }
-    while (balance > 0 && months < 600) {
+    while (balance > 0 && months < 1200) {
       const interest = balance * monthlyRate;
-      const principalPaid = totalPay - interest;
+      let principalPaid = totalPay - interest;
+      if (principalPaid > balance) principalPaid = balance;
       balance -= principalPaid;
       totalInterest += interest;
       months++;
@@ -1284,47 +1411,268 @@ class MoneyTrackerApp {
     return { months, totalInterest, schedule };
   }
 
-  renderDebtChart(schedule, minSchedule) {
+  renderDebtChart(schedule, baselineSchedule) {
     const canvas = document.getElementById('debtChart');
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return;
     const ctx = canvas.getContext('2d');
+    const H = 240;
     canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = 220 * window.devicePixelRatio;
+    canvas.height = H * window.devicePixelRatio;
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    ctx.clearRect(0, 0, rect.width, 220);
+    ctx.clearRect(0, 0, rect.width, H);
 
     if (!schedule || schedule.length === 0) {
       ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
-      ctx.fillText('Payment is too low to cover interest.', rect.width / 2, 110); return;
+      ctx.fillText('Adjust P&I to see the payoff projection.', rect.width / 2, H / 2);
+      return;
     }
-    const maxM = Math.max(schedule.length, minSchedule.length);
-    const maxB = schedule[0].balance;
-    const startY = 30, endY = 180, ch = endY - startY;
-    const getX = m => 50 + (m / maxM) * (rect.width - 70);
-    const getY = b => endY - ((b - 0) / (maxB - 0)) * ch;
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+    const baseline = baselineSchedule && baselineSchedule.length ? baselineSchedule : schedule;
+    const maxM = Math.max(schedule.length, baseline.length);
+    const maxB = schedule[0].balance;
+    const padL = 55, padR = 20, padT = 30, padB = 34;
+    const chartW = rect.width - padL - padR;
+    const chartH = H - padT - padB;
+    const getX = m => padL + (m / maxM) * chartW;
+    const getY = b => padT + (1 - b / maxB) * chartH;
+
+    // Legend at top
+    const legendY = 14;
+    ctx.font = '600 10px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#b26bff';
+    ctx.fillRect(padL, legendY - 6, 10, 3);
+    ctx.fillStyle = '#8a8f9e';
+    ctx.fillText('Minimum', padL + 15, legendY);
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillRect(padL + 90, legendY - 6, 10, 3);
+    ctx.fillStyle = '#8a8f9e';
+    ctx.fillText('Your plan', padL + 105, legendY);
+
+    // Gridlines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
     ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
-      const y = startY + (ch / 4) * i;
-      ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(rect.width - 20, y); ctx.stroke();
+      const y = padT + (chartH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(rect.width - padR, y); ctx.stroke();
       const val = maxB - (maxB / 4) * i;
-      ctx.fillText(this.fmt(val), 45, y + 3);
+      ctx.fillText(this.fmt(val), padL - 6, y + 3);
     }
+
+    // X axis labels
     ctx.textAlign = 'center';
     const totalY = Math.ceil(maxM / 12);
     const yStep = Math.max(1, Math.ceil(totalY / 5));
     for (let y = 0; y <= totalY; y += yStep) {
-      ctx.fillText(`Yr ${y}`, getX(y * 12), endY + 18);
+      ctx.fillText(`Yr ${y}`, getX(y * 12), H - padB + 16);
     }
+
+    // Baseline (dashed purple)
     ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2;
-    minSchedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.setLineDash([5, 4]);
+    baseline.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Fill under current line
+    ctx.beginPath();
+    schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.lineTo(getX(schedule[schedule.length - 1].month), padT + chartH);
+    ctx.lineTo(getX(0), padT + chartH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+    grad.addColorStop(0, 'rgba(0,229,255,0.25)');
+    grad.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = grad; ctx.fill();
+
+    // Current (solid cyan)
     ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
     schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
+  }
+
+  /* ============ LOAN MODALS ============ */
+  openAddLoanModal() {
+    this._openLoanEditor(null);
+  }
+
+  openEditLoanModal(btn) {
+    const loan = this.state.loans.find(l => l.id === btn.dataset.loanId);
+    if (!loan) return;
+    this._openLoanEditor(loan);
+  }
+
+  _openLoanEditor(loan) {
+    const isEdit = !!loan;
+    const l = loan || {
+      id: '',
+      name: '',
+      balance: 0,
+      rate: 5,
+      minPayment: 0,
+      escrow: 0,
+      termYears: 30,
+      paymentFilter: ''
+    };
+
+    const bal = parseFloat(l.balance) || 0;
+    const rate = parseFloat(l.rate) || 0;
+    const escrow = parseFloat(l.escrow) || 0;
+    const totalPmt = parseFloat(l.minPayment) || 0;
+    // P&I = total - escrow, or auto-calc if missing
+    let pi = Math.max(0, totalPmt - escrow);
+    if (pi <= 0) pi = this.calculatePI(bal, rate, l.termYears || 30);
+    const totalDisplay = pi + escrow;
+
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:520px;">
+          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:1rem;">${isEdit ? 'Edit Loan' : 'Add New Loan'}</h2>
+          <input type="hidden" id="editLoanId" value="${l.id}">
+          <div style="display:flex; flex-direction:column; gap:0.85rem;">
+            <div>
+              <label class="stat-label">Loan Name</label>
+              <input type="text" id="loanName" value="${this.escapeHtml(l.name)}" placeholder="e.g. Mortgage, Car Loan">
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+              <div>
+                <label class="stat-label">Current Balance ($)</label>
+                <input type="number" step="0.01" id="loanBalance" value="${bal.toFixed(2)}">
+              </div>
+              <div>
+                <label class="stat-label">Interest Rate (%)</label>
+                <input type="number" step="0.01" id="loanRate" value="${rate}">
+              </div>
+            </div>
+            <div>
+              <label class="stat-label">Term (Years)</label>
+              <input type="number" id="loanTerm" value="${l.termYears || 30}">
+            </div>
+
+            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
+              <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTHLY PAYMENT</div>
+              <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                <div>
+                  <label class="stat-label">Principal &amp; Interest ($)</label>
+                  <input type="number" step="0.01" id="loanPI" value="${pi.toFixed(2)}">
+                  <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px; line-height:1.3;">
+                    Pays down the loan
+                  </div>
+                </div>
+                <div>
+                  <label class="stat-label">Escrow ($)</label>
+                  <input type="number" step="0.01" id="loanEscrow" value="${escrow.toFixed(2)}">
+                  <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px; line-height:1.3;">
+                    Taxes &amp; insurance
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
+                <span style="font-size:0.8rem; color:var(--text-muted);">Total Monthly Payment</span>
+                <span id="loanTotalDisplay" class="mono" style="font-size:1rem; font-weight:700; color:var(--accent-primary);">
+                  $${totalDisplay.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label class="stat-label">Payment Filter (matches transaction descriptions)</label>
+              <input type="text" id="loanFilter" value="${this.escapeHtml(l.paymentFilter || '')}" placeholder="e.g. usbank, MORTGAGE">
+              <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px;">
+                Used to auto-reduce the loan balance when matching payments appear in your transactions.
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:${isEdit ? 'space-between' : 'flex-end'}; gap:0.5rem; margin-top:1.5rem;">
+            ${isEdit ? `<button class="btn btn-danger btn-sm" data-action="deleteLoan">Delete</button>` : ''}
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn" data-action="closeModal">Cancel</button>
+              <button class="btn btn-primary" data-action="${isEdit ? 'saveEditedLoan' : 'saveLoan'}">${isEdit ? 'Save' : 'Add Loan'}</button>
+            </div>
+          </div>
+        </div>
+      </div>`);
+  }
+
+  saveLoan() {
+    const name = document.getElementById('loanName').value.trim();
+    const bal = parseFloat(document.getElementById('loanBalance').value);
+    const rate = parseFloat(document.getElementById('loanRate').value);
+    const term = parseInt(document.getElementById('loanTerm').value) || 30;
+    const pi = parseFloat(document.getElementById('loanPI').value) || 0;
+    const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
+    const filter = document.getElementById('loanFilter').value.trim();
+    if (!name || isNaN(bal) || isNaN(rate)) { alert('Please fill in name, balance, and rate.'); return; }
+    const minPayment = pi + esc; // total
+    this.state.loans.push({
+      id: `loan_${Date.now()}`,
+      name, balance: bal, initialBalance: bal,
+      rate, minPayment, escrow: esc, termYears: term, paymentFilter: filter
+    });
+    this.recalculateLoanBalances();
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('debts');
+    this.showToast(`Loan "${name}" added`);
+  }
+
+  saveEditedLoan() {
+    const id = document.getElementById('editLoanId').value;
+    const l = this.state.loans.find(x => x.id === id);
+    if (!l) return;
+    l.name = document.getElementById('loanName').value.trim();
+    l.balance = parseFloat(document.getElementById('loanBalance').value) || 0;
+    l.rate = parseFloat(document.getElementById('loanRate').value) || 0;
+    l.termYears = parseInt(document.getElementById('loanTerm').value) || 30;
+    const pi = parseFloat(document.getElementById('loanPI').value) || 0;
+    const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
+    l.minPayment = pi + esc;
+    l.escrow = esc;
+    l.paymentFilter = document.getElementById('loanFilter').value.trim();
+    // Reset manual override so it re-derives from the new saved values
+    this._piManual = false;
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('debts');
+    this.showToast('Loan updated');
+  }
+
+  deleteLoan() {
+    const id = document.getElementById('editLoanId').value;
+    if (!confirm('Delete this loan?')) return;
+    this.state.loans = this.state.loans.filter(l => l.id !== id);
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('debts');
+    this.showToast('Loan deleted');
+  }
+
+  recalculateLoanBalances() {
+    if (!this.state.loans || !this.state.loans.length) return;
+    this.state.loans.forEach(loan => {
+      if (!loan.paymentFilter) return;
+      const filter = loan.paymentFilter.toUpperCase();
+      const payments = this.state.transactions.filter(t =>
+        t.status !== 'estimated' && t.amount < 0 &&
+        t.description && t.description.toUpperCase().includes(filter)
+      );
+      if (!payments.length) return;
+      payments.sort((a, b) => new Date(a.date) - new Date(b.date));
+      let bal = parseFloat(loan.initialBalance || loan.balance) || 0;
+      const mr = ((parseFloat(loan.rate) || 0) / 100) / 12;
+      payments.forEach(p => {
+        const amt = Math.abs(parseFloat(p.amount) || 0);
+        const interest = bal * mr;
+        let principal = amt - interest;
+        if (principal < 0) principal = 0;
+        bal -= principal;
+        if (bal < 0) bal = 0;
+      });
+      loan.balance = bal;
+    });
+    this.saveState();
   }
 
   /* ============ PAYCHECK ============ */
@@ -1356,7 +1704,6 @@ class MoneyTrackerApp {
   const annualBenefits = benefits * 12;
   const annualNet = annualGross - totalTax - annualBenefits;
 
-  // Period divisors — no extra storage, just divide
   const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
   const div = divisors[period] || 1;
   const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
@@ -1369,7 +1716,6 @@ class MoneyTrackerApp {
   const pMed = med / div;
   const pBenefits = annualBenefits / div;
 
-  // Bracket breakdown (shows per-period amounts)
   let bracketBreakdown = '';
   if (stateData && stateData.brackets.length > 1) {
     const rows = [];
@@ -1525,7 +1871,6 @@ class MoneyTrackerApp {
 
     if (brackets.length === 0) { alert('Add at least one bracket.'); return; }
 
-    // Find and replace, or add
     const idx = (this.state.taxStates || []).findIndex(s => s.code === this.editingStateCode);
     const entry = { code, name, brackets };
     if (idx >= 0) this.state.taxStates[idx] = entry;
@@ -1619,7 +1964,6 @@ class MoneyTrackerApp {
     const avgFix = gi('fcAvgFixed');
     const avgVar = gi('fcAvgVariable');
 
-    // Sum the monthly impact of every active scenario, regardless of type
     let scenSum = 0;
     (this.state.scenarios || []).forEach(s => {
       scenSum += this.computeScenarioImpact(s);
@@ -1651,12 +1995,10 @@ class MoneyTrackerApp {
         const icon = typeIcons[type] || '⚙️';
         const typeLabel = typeLabels[type] || 'Scenario';
 
-        // Compute impact for display
         const impact = this.computeScenarioImpact({ ...s, active: true });
         const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
         const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
 
-        // Build a subtitle per scenario type
         let subtitle = '';
         if (type === 'paycheck' || type === 'bill') {
           const g = this.getRecurringGroupInfo(s.groupId);
@@ -2436,126 +2778,6 @@ class MoneyTrackerApp {
     this.showToast(`Updated ${count} transactions`);
   }
 
-  openAddLoanModal() {
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal">
-          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:1rem;">Add New Loan</h2>
-          <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Loan Name</label><input type="text" id="loanName"></div>
-            <div><label class="stat-label">Current Balance ($)</label><input type="number" step="0.01" id="loanBalance"></div>
-            <div><label class="stat-label">Interest Rate (%)</label><input type="number" step="0.01" id="loanRate"></div>
-            <div><label class="stat-label">Minimum Monthly Payment ($)</label><input type="number" step="0.01" id="loanMinPayment"></div>
-            <div><label class="stat-label">Escrow ($)</label><input type="number" step="0.01" id="loanEscrow" value="0"></div>
-            <div><label class="stat-label">Term (Years)</label><input type="number" id="loanTerm" value="30"></div>
-            <div><label class="stat-label">Payment Filter</label><input type="text" id="loanFilter" placeholder="e.g. MORTGAGE"></div>
-          </div>
-          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn" data-action="closeModal">Cancel</button>
-            <button class="btn btn-primary" data-action="saveLoan">Add Loan</button>
-          </div>
-        </div>
-      </div>`);
-  }
-
-  saveLoan() {
-    const name = document.getElementById('loanName').value.trim();
-    const bal = parseFloat(document.getElementById('loanBalance').value);
-    const rate = parseFloat(document.getElementById('loanRate').value);
-    const min = parseFloat(document.getElementById('loanMinPayment').value);
-    const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
-    const term = parseInt(document.getElementById('loanTerm').value) || 30;
-    const filter = document.getElementById('loanFilter').value.trim();
-    if (!name || isNaN(bal) || isNaN(rate) || isNaN(min)) { alert('Fill all fields'); return; }
-    this.state.loans.push({
-      id: `loan_${Date.now()}`, name, balance: bal, initialBalance: bal,
-      rate, minPayment: min, escrow: esc, termYears: term, paymentFilter: filter
-    });
-    this.recalculateLoanBalances();
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent('debts');
-  }
-
-  openEditLoanModal(btn) {
-    const loan = this.state.loans.find(l => l.id === btn.dataset.loanId);
-    if (!loan) return;
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal">
-          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:1rem;">Edit Loan</h2>
-          <input type="hidden" id="editLoanId" value="${loan.id}">
-          <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Name</label><input type="text" id="elName" value="${this.escapeHtml(loan.name)}"></div>
-            <div><label class="stat-label">Balance ($)</label><input type="number" step="0.01" id="elBalance" value="${(parseFloat(loan.balance) || 0).toFixed(2)}"></div>
-            <div><label class="stat-label">Rate (%)</label><input type="number" step="0.01" id="elRate" value="${loan.rate}"></div>
-            <div><label class="stat-label">Min Payment ($)</label><input type="number" step="0.01" id="elMin" value="${loan.minPayment}"></div>
-            <div><label class="stat-label">Escrow ($)</label><input type="number" step="0.01" id="elEsc" value="${loan.escrow || 0}"></div>
-            <div><label class="stat-label">Term (Years)</label><input type="number" id="elTerm" value="${loan.termYears || 30}"></div>
-            <div><label class="stat-label">Filter</label><input type="text" id="elFilter" value="${this.escapeHtml(loan.paymentFilter || '')}"></div>
-          </div>
-          <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn btn-danger btn-sm" data-action="deleteLoan">Delete</button>
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn" data-action="closeModal">Cancel</button>
-              <button class="btn btn-primary" data-action="saveEditedLoan">Save</button>
-            </div>
-          </div>
-        </div>
-      </div>`);
-  }
-
-  saveEditedLoan() {
-    const id = document.getElementById('editLoanId').value;
-    const l = this.state.loans.find(x => x.id === id);
-    if (!l) return;
-    l.name = document.getElementById('elName').value.trim();
-    l.balance = parseFloat(document.getElementById('elBalance').value) || 0;
-    l.rate = parseFloat(document.getElementById('elRate').value) || 0;
-    l.minPayment = parseFloat(document.getElementById('elMin').value) || 0;
-    l.escrow = parseFloat(document.getElementById('elEsc').value) || 0;
-    l.termYears = parseInt(document.getElementById('elTerm').value) || 30;
-    l.paymentFilter = document.getElementById('elFilter').value.trim();
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent('debts');
-  }
-
-  deleteLoan() {
-    const id = document.getElementById('editLoanId').value;
-    if (!confirm('Delete this loan?')) return;
-    this.state.loans = this.state.loans.filter(l => l.id !== id);
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent('debts');
-  }
-
-  recalculateLoanBalances() {
-    if (!this.state.loans || !this.state.loans.length) return;
-    this.state.loans.forEach(loan => {
-      if (!loan.paymentFilter) return;
-      const filter = loan.paymentFilter.toUpperCase();
-      const payments = this.state.transactions.filter(t =>
-        t.status !== 'estimated' && t.amount < 0 &&
-        t.description && t.description.toUpperCase().includes(filter)
-      );
-      if (!payments.length) return;
-      payments.sort((a, b) => new Date(a.date) - new Date(b.date));
-      let bal = parseFloat(loan.initialBalance || loan.balance) || 0;
-      const mr = ((parseFloat(loan.rate) || 0) / 100) / 12;
-      payments.forEach(p => {
-        const amt = Math.abs(parseFloat(p.amount) || 0);
-        const interest = bal * mr;
-        let principal = amt - interest;
-        if (principal < 0) principal = 0;
-        bal -= principal;
-        if (bal < 0) bal = 0;
-      });
-      loan.balance = bal;
-    });
-    this.saveState();
-  }
-
   /* ============ SCENARIO MODALS ============ */
   openAddScenarioModal() {
     const typeOpts = `
@@ -2795,7 +3017,6 @@ class MoneyTrackerApp {
         </div>
       </div>`);
     this.onScenarioTypeChange();
-    // Pre-fill values based on the existing scenario
     setTimeout(() => this.prefillScenarioEdit(s), 0);
   }
 
@@ -2843,7 +3064,6 @@ class MoneyTrackerApp {
     const type = document.getElementById('scenarioTypeInput').value;
     const rawName = document.getElementById('scenarioNameInput').value.trim();
 
-    // Reset type-specific fields
     sc.type = type;
     sc.groupId = null;
     sc.loanId = null;
@@ -2976,11 +3196,9 @@ class MoneyTrackerApp {
     reader.onload = (e) => {
       try {
         this.state = JSON.parse(e.target.result);
-        // Ensure taxStates exists after import
         if (!this.state.taxStates || !this.state.taxStates.length) {
           this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
-        // Ensure scenarios have a type
         (this.state.scenarios || []).forEach(s => { if (!s.type) s.type = 'custom'; });
         this.saveState();
         this.recalculateBalances();
