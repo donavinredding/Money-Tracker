@@ -1937,26 +1937,43 @@ class MoneyTrackerApp {
 
   /* ============ FORECASTER ============ */
   syncForecaster() {
-    const estimated = this.state.transactions.filter(t => t.status === 'estimated');
-    let inc = 0, fix = 0;
-    estimated.forEach(t => {
-      const abs = Math.abs(t.amount || 0);
-      const cfg = t.ruleConfig || { interval: 1, freq: 'weeks' };
-      const int = Math.max(1, cfg.interval || 1);
-      let monthly = 0;
-      if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
-      else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
-      else if (cfg.freq === 'months') monthly = abs / int;
-      else if (cfg.freq === 'years') monthly = abs / (12 * int);
-      if (t.amount > 0 || t.category === 'Income' || t.flow === 'Income') inc += monthly;
-      else fix += monthly;
-    });
-    const incEl = document.getElementById('fcAvgIncome');
-    const fixEl = document.getElementById('fcAvgFixed');
-    if (incEl) incEl.value = inc.toFixed(2);
-    if (fixEl) fixEl.value = fix.toFixed(2);
-    this.renderForecaster();
-  }
+  const estimated = this.state.transactions.filter(t => t.status === 'estimated');
+
+  // Group by groupId — a recurring item exists as N copies of the same
+  // group, so we must only count each unique group ONCE.
+  // Transactions without a groupId (legacy data) are treated as their
+  // own single-item group.
+  const groups = new Map();
+  estimated.forEach(t => {
+    const gid = t.groupId || ('solo_' + t.id);
+    if (!groups.has(gid)) groups.set(gid, t);
+  });
+
+  let inc = 0, fix = 0;
+  groups.forEach(t => {
+    const abs = Math.abs(parseFloat(t.amount) || 0);
+    const cfg = t.ruleConfig || { interval: 1, freq: 'months' };
+    const int = Math.max(1, cfg.interval || 1);
+    let monthly = 0;
+    if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
+    else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+    else if (cfg.freq === 'months') monthly = abs / int;
+    else if (cfg.freq === 'years') monthly = abs / (12 * int);
+    else monthly = abs; // safe default
+
+    const isIncome = t.amount > 0 || t.category === 'Income' || t.flow === 'Income';
+    if (isIncome) inc += monthly;
+    else fix += monthly;
+  });
+
+  const incEl = document.getElementById('fcAvgIncome');
+  const fixEl = document.getElementById('fcAvgFixed');
+  if (incEl) incEl.value = inc.toFixed(2);
+  if (fixEl) fixEl.value = fix.toFixed(2);
+
+  this.renderForecaster();
+  this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
+}
 
   renderForecaster() {
     const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
