@@ -945,123 +945,175 @@ class MoneyTrackerApp {
 
   /* ============ CALENDAR ============ */
   renderCalendarView() {
-    try {
-      const title = document.getElementById('calendarMonthTitle');
-      const grid = document.getElementById('calendarGrid');
-      const mobile = document.getElementById('calendarMobileList');
-      if (!title || !grid || !mobile) return;
+  try {
+    const title = document.getElementById('calendarMonthTitle');
+    const grid = document.getElementById('calendarGrid');
+    const mobile = document.getElementById('calendarMobileList');
+    if (!title || !grid || !mobile) return;
 
-      const year = this.calendarMonth.getFullYear();
-      const month = this.calendarMonth.getMonth();
-      const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-      title.innerText = `${mn[month]} ${year}`;
+    const year = this.calendarMonth.getFullYear();
+    const month = this.calendarMonth.getMonth();
+    const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+    title.innerText = `${mn[month]} ${year}`;
 
-      const firstDay = new Date(year, month, 1).getDay();
-      const daysInMonth = new Date(year, month + 1, 0).getDate();
-      const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-      const dayMap = new Map();
-      this.state.transactions.forEach(t => {
-        if (t.date && t.date.startsWith(monthPrefix)) {
-          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-          dayMap.get(t.date).push(t);
-        }
+    const dayMap = new Map();
+    this.state.transactions.forEach(t => {
+      if (t.date && t.date.startsWith(monthPrefix)) {
+        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+        dayMap.get(t.date).push(t);
+      }
+    });
+    this.state.pendingItems.forEach(t => {
+      if (t.date && t.date.startsWith(monthPrefix)) {
+        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+        dayMap.get(t.date).push(t);
+      }
+    });
+
+    const classify = (t) => {
+      const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+      if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
+      const amt = parseFloat(t.amount) || 0;
+      if (amt > 0) return 'income';
+      if (amt < 0) return 'expense';
+      return 'other';
+    };
+
+    const gridFrag = document.createDocumentFragment();
+    const mobileFrag = document.createDocumentFragment();
+
+    for (let i = 0; i < firstDay; i++) {
+      const ec = document.createElement('div');
+      ec.className = 'calendar-cell other-month';
+      gridFrag.appendChild(ec);
+    }
+
+    let totalIncome = 0, totalExpense = 0, totalTransfer = 0, hasActivity = false;
+
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const dayTxs = dayMap.get(dateStr) || [];
+
+      // Classify day totals
+      let dIncome = 0, dExpense = 0, dTransfer = 0;
+      dayTxs.forEach(t => {
+        const amt = parseFloat(t.amount) || 0;
+        const kind = classify(t);
+        if (kind === 'income') dIncome += amt;
+        else if (kind === 'expense') dExpense += Math.abs(amt);
+        else if (kind === 'transfer') dTransfer += amt;
       });
-      this.state.pendingItems.forEach(t => {
-        if (t.date && t.date.startsWith(monthPrefix)) {
-          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-          dayMap.get(t.date).push(t);
+
+      totalIncome += dIncome;
+      totalExpense += dExpense;
+      totalTransfer += dTransfer;
+
+      const cell = document.createElement('div');
+      cell.className = 'calendar-cell';
+      cell.addEventListener('click', () => this.openDayDrawer(dateStr));
+
+      const num = document.createElement('div');
+      num.style.fontWeight = '700';
+      num.style.fontSize = '0.85rem';
+      num.innerText = d;
+      cell.appendChild(num);
+
+      if (dayTxs.length > 0) {
+        hasActivity = true;
+
+        const info = document.createElement('div');
+        info.style.display = 'flex';
+        info.style.flexDirection = 'column';
+        info.style.gap = '1px';
+        info.style.alignItems = 'flex-start';
+        info.style.marginTop = '3px';
+
+        const badge = document.createElement('div');
+        badge.className = 'badge badge-vault';
+        badge.style.fontSize = '0.55rem';
+        badge.style.marginBottom = '2px';
+        badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
+        info.appendChild(badge);
+
+        if (dIncome > 0) {
+          const l = document.createElement('div');
+          l.style.fontSize = '0.68rem';
+          l.style.fontWeight = '600';
+          l.style.fontFamily = 'var(--font-mono, monospace)';
+          l.style.color = 'var(--accent-positive)';
+          l.innerText = `+$${dIncome.toFixed(2)}`;
+          info.appendChild(l);
         }
-      });
-
-      const gridFrag = document.createDocumentFragment();
-      const mobileFrag = document.createDocumentFragment();
-
-      for (let i = 0; i < firstDay; i++) {
-        const ec = document.createElement('div');
-        ec.className = 'calendar-cell other-month';
-        gridFrag.appendChild(ec);
-      }
-
-      let totalIncome = 0, totalExpense = 0, hasActivity = false;
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const dayTxs = dayMap.get(dateStr) || [];
-
-        const cell = document.createElement('div');
-        cell.className = 'calendar-cell';
-        cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-        const num = document.createElement('div');
-        num.style.fontWeight = '700';
-        num.style.fontSize = '0.85rem';
-        num.innerText = d;
-        cell.appendChild(num);
-
-        if (dayTxs.length > 0) {
-          const total = dayTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-
-          const info = document.createElement('div');
-          info.style.display = 'flex';
-          info.style.flexDirection = 'column';
-          info.style.gap = '2px';
-          info.style.alignItems = 'flex-start';
-
-          const badge = document.createElement('div');
-          badge.className = 'badge badge-vault';
-          badge.style.fontSize = '0.6rem';
-          badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
-          info.appendChild(badge);
-
-          const netEl = document.createElement('div');
-          netEl.style.fontSize = '0.72rem';
-          netEl.style.fontWeight = '600';
-          netEl.style.fontFamily = 'var(--font-mono, monospace)';
-          netEl.style.color = total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
-          netEl.innerText = `${total >= 0 ? '+' : ''}$${total.toFixed(2)}`;
-          info.appendChild(netEl);
-
-          cell.appendChild(info);
-          hasActivity = true;
+        if (dExpense > 0) {
+          const l = document.createElement('div');
+          l.style.fontSize = '0.68rem';
+          l.style.fontWeight = '600';
+          l.style.fontFamily = 'var(--font-mono, monospace)';
+          l.style.color = 'var(--accent-negative)';
+          l.innerText = `-$${dExpense.toFixed(2)}`;
+          info.appendChild(l);
         }
-        gridFrag.appendChild(cell);
-
-        if (dayTxs.length > 0) {
-          const total = dayTxs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-          if (total > 0) totalIncome += total; else totalExpense += Math.abs(total);
-          const color = total >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
-          const mc = document.createElement('div');
-          mc.className = 'calendar-mobile-card has-activity';
-          mc.addEventListener('click', () => this.openDayDrawer(dateStr));
-          mc.innerHTML = `
-            <div><div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted);">${dayTxs.length} transaction(s)</div></div>
-            <div style="color:${color}; font-weight:600;">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</div>`;
-          mobileFrag.appendChild(mc);
+        if (Math.abs(dTransfer) >= 0.005) {
+          const l = document.createElement('div');
+          l.style.fontSize = '0.6rem';
+          l.style.fontFamily = 'var(--font-mono, monospace)';
+          l.style.color = 'var(--text-muted)';
+          l.style.opacity = '0.75';
+          const sign = dTransfer >= 0 ? '+' : '-';
+          l.innerText = `↔ ${sign}$${Math.abs(dTransfer).toFixed(2)}`;
+          info.appendChild(l);
         }
-      }
 
-      grid.innerHTML = ''; mobile.innerHTML = '';
-      grid.appendChild(gridFrag);
-      if (!hasActivity) {
-        const noAct = document.createElement('div');
-        noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
-        noAct.innerText = 'No transactions this month.';
-        mobileFrag.appendChild(noAct);
+        cell.appendChild(info);
       }
-      mobile.appendChild(mobileFrag);
+      gridFrag.appendChild(cell);
 
-      const summary = document.getElementById('calendarMonthSummary');
-      if (summary) {
-        summary.innerHTML = `
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap:0.75rem;">
-            <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.2rem;">$${totalIncome.toFixed(2)}</div></div>
-            <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.2rem;">$${totalExpense.toFixed(2)}</div></div>
-            <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${(totalIncome-totalExpense)>=0?'var(--accent-positive)':'var(--accent-negative)'}; font-size:1.2rem;">$${(totalIncome-totalExpense).toFixed(2)}</div></div>
+      // Mobile card
+      if (dayTxs.length > 0) {
+        const mc = document.createElement('div');
+        mc.className = 'calendar-mobile-card has-activity';
+        mc.addEventListener('click', () => this.openDayDrawer(dateStr));
+        mc.innerHTML = `
+          <div style="flex:1;">
+            <div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">${dayTxs.length} transaction(s)</div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.75rem; font-family:var(--font-mono, monospace);">
+              ${dIncome > 0 ? `<span style="color:var(--accent-positive); font-weight:600;">+$${dIncome.toFixed(2)}</span>` : ''}
+              ${dExpense > 0 ? `<span style="color:var(--accent-negative); font-weight:600;">-$${dExpense.toFixed(2)}</span>` : ''}
+              ${Math.abs(dTransfer) >= 0.005 ? `<span style="color:var(--text-muted);">↔ ${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</span>` : ''}
+            </div>
           </div>`;
+        mobileFrag.appendChild(mc);
       }
-    } catch(e) { console.error("Calendar error:", e); }
-  }
+    }
+
+    grid.innerHTML = ''; mobile.innerHTML = '';
+    grid.appendChild(gridFrag);
+    if (!hasActivity) {
+      const noAct = document.createElement('div');
+      noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
+      noAct.innerText = 'No transactions this month.';
+      mobileFrag.appendChild(noAct);
+    }
+    mobile.appendChild(mobileFrag);
+
+    const summary = document.getElementById('calendarMonthSummary');
+    if (summary) {
+      const net = totalIncome - totalExpense;
+      summary.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem;">
+          <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.15rem;">$${totalIncome.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.15rem;">$${totalExpense.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Transfers</div><div class="stat-value mono" style="color:var(--text-muted); font-size:1.15rem;">${totalTransfer >= 0 ? '+' : '-'}$${Math.abs(totalTransfer).toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-size:1.15rem;">$${net.toFixed(2)}</div></div>
+        </div>`;
+    }
+  } catch(e) { console.error("Calendar error:", e); }
+}
 
   changeMonth(btn) {
     const offset = parseInt(btn.dataset.offset) || 0;
@@ -1070,34 +1122,83 @@ class MoneyTrackerApp {
   }
 
   openDayDrawer(dateStr) {
-    this.currentDrawerDate = dateStr;
-    let drawer = document.getElementById('dayDrawer');
-    if (!drawer) {
-      drawer = document.createElement('div');
-      drawer.id = 'dayDrawer';
-      drawer.className = 'drawer';
-      document.body.appendChild(drawer);
-    }
-    const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
-      .concat(this.state.pendingItems.filter(t => t.date === dateStr));
+  this.currentDrawerDate = dateStr;
+  let drawer = document.getElementById('dayDrawer');
+  if (!drawer) {
+    drawer = document.createElement('div');
+    drawer.id = 'dayDrawer';
+    drawer.className = 'drawer';
+    document.body.appendChild(drawer);
+  }
+  const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
+    .concat(this.state.pendingItems.filter(t => t.date === dateStr));
 
-    drawer.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-        <h3 style="font-size:1.1rem; font-weight:700;">Details for ${dateStr}</h3>
-        <button class="btn btn-sm" data-action="closeDrawer">Close</button>
-      </div>
-      ${dayTxs.length === 0 ? '<div style="color:var(--text-muted);">No transactions.</div>' :
-        dayTxs.map(t => `
-          <div style="background:var(--bg-base); padding:0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.75rem;">
-            <div style="font-weight:700;">${this.escapeHtml(t.nickname || t.description)}</div>
-            <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
+  const classify = (t) => {
+    const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+    if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
+    const amt = parseFloat(t.amount) || 0;
+    if (amt > 0) return 'income';
+    if (amt < 0) return 'expense';
+    return 'other';
+  };
+
+  const income = dayTxs.filter(t => classify(t) === 'income');
+  const expenses = dayTxs.filter(t => classify(t) === 'expense');
+  const transfers = dayTxs.filter(t => classify(t) === 'transfer');
+  const other = dayTxs.filter(t => classify(t) === 'other');
+
+  const renderGroup = (label, txs, color) => {
+    if (!txs.length) return '';
+    const total = txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+    return `
+      <div style="margin-bottom:1.1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+          <span class="stat-label" style="font-size:0.68rem; color:${color};">${label} · ${txs.length}</span>
+          <span class="mono" style="font-size:0.85rem; font-weight:600; color:${color};">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</span>
+        </div>
+        ${txs.map(t => `
+          <div style="background:var(--bg-base); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+            <div style="font-weight:700; font-size:0.9rem;">${this.escapeHtml(t.nickname || t.description)}</div>
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
               <span class="badge badge-posted">${t.category}</span>
             </div>
-          </div>`).join('')}`;
-    drawer.classList.add('active');
-  }
+          </div>`).join('')}
+      </div>`;
+  };
+
+  const dIncome = income.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const dExpense = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
+  const dTransfer = transfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+
+  drawer.innerHTML = `
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+      <h3 style="font-size:1.1rem; font-weight:700;">Details for ${dateStr}</h3>
+      <button class="btn btn-sm" data-action="closeDrawer">Close</button>
+    </div>
+    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.5rem; margin-bottom:1rem;">
+      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div class="stat-label" style="font-size:0.58rem;">Income</div>
+        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-positive);">+$${dIncome.toFixed(2)}</div>
+      </div>
+      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div class="stat-label" style="font-size:0.58rem;">Expenses</div>
+        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-negative);">-$${dExpense.toFixed(2)}</div>
+      </div>
+      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div class="stat-label" style="font-size:0.58rem;">Transfers</div>
+        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</div>
+      </div>
+    </div>
+    ${dayTxs.length === 0 ? '<div style="color:var(--text-muted);">No transactions.</div>' :
+      renderGroup('Income', income, 'var(--accent-positive)') +
+      renderGroup('Expenses', expenses, 'var(--accent-negative)') +
+      renderGroup('Transfers', transfers, 'var(--text-muted)') +
+      renderGroup('Other', other, 'var(--text-muted)')}
+  `;
+  drawer.classList.add('active');
+}
 
   closeDrawer() {
     document.getElementById('dayDrawer')?.classList.remove('active');
