@@ -432,9 +432,9 @@ class MoneyTrackerApp {
             <label class="stat-label" style="margin:0;">Period</label>
             <select id="payPeriod" onchange="app.calculatePaycheck()" style="width:auto; min-width:130px;">
               <option value="weekly">Weekly</option>
-              <option value="biweekly">Bi-Weekly</option>
+              <option value="biweekly" selected>Bi-Weekly</option>
               <option value="monthly">Monthly</option>
-              <option value="yearly" selected>Yearly</option>
+              <option value="yearly">Yearly</option>
             </select>
           </div>
         </div>
