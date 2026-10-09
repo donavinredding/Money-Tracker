@@ -55,6 +55,7 @@ const CATEGORY_RULES = [
 ];
 
 // Default tax states — user can add more via the UI
+const MAX_BRACKET = 999999999;
 const DEFAULT_TAX_STATES = [
   {
     code: 'OK', name: 'Oklahoma',
