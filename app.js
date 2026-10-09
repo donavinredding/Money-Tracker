@@ -1778,8 +1778,15 @@ class MoneyTrackerApp {
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
-  const get = (id, def) => parseFloat(document.getElementById(id)?.value) || def;
-  const hourly = get('payHourlyRate', 20);
+  // Only fall back to default if the input is missing or unparseable —
+  // NOT when the value is 0.
+  const get = (id, def) => {
+    const raw = document.getElementById(id)?.value;
+    const v = parseFloat(raw);
+    return isNaN(v) ? def : v;
+  };
+
+  const hourly = get('payHourlyRate', 17);   // default 0 now, matching the HTML
   const hours = get('payHours', 40);
   const weeks = get('payWeeks', 52);
   const benefits = get('payBenefits', 0);
@@ -1818,7 +1825,7 @@ class MoneyTrackerApp {
   const pBenefits = annualBenefits / div;
 
   let bracketBreakdown = '';
-  if (stateData && stateData.brackets.length > 1) {
+  if (stateData && stateData.brackets.length > 1 && annualGross > 0) {
     const rows = [];
     for (const b of stateData.brackets) {
       if (annualGross <= b.min) break;
@@ -1861,7 +1868,7 @@ class MoneyTrackerApp {
       </div>
       ${bracketBreakdown}
     </details>`;
-  }
+}
 
   /* ============ TAX BRACKET MODAL ============ */
   openTaxBracketModal() {
