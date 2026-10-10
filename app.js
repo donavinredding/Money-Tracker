@@ -1,6 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 5
-   Redesigned Debt Payoff Page + Scenario Types
+   MONEY TRACKER APP - STEP 6
+   Profiles + Theme Customizer + Settings Menu
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -80,8 +80,19 @@ const DEFAULT_TAX_STATES = [
   { code: 'FL', name: 'Florida', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] }
 ];
 
+const DEFAULT_THEME = {
+  accentPrimary: '#00e5ff',
+  accentSecondary: '#b26bff',
+  accentPositive: '#00ff9d',
+  accentNegative: '#ff3d71',
+  accentWarning: '#ffb020',
+  bg: '#0a0a0f',
+  surface: '#12121a',
+  surface2: '#1a1a24'
+};
+
 const INITIAL_EMPTY_STATE = {
-  version: 3,
+  version: 4,
   accounts: {
     CHECKING: { id: "CHECKING", name: "Joint Checking", verifiedBalance: 0.00 },
     SAVINGS: { id: "SAVINGS", name: "Joint Savings", verifiedBalance: 0.00 }
@@ -90,7 +101,8 @@ const INITIAL_EMPTY_STATE = {
   scenarios: [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }],
   suggestedVaults: [], nicknameRules: [], loans: [],
   taxStates: JSON.parse(JSON.stringify(DEFAULT_TAX_STATES)),
-  selectedState: 'OK'
+  selectedState: 'OK',
+  theme: JSON.parse(JSON.stringify(DEFAULT_THEME))
 };
 
 class MoneyTrackerApp {
@@ -110,11 +122,12 @@ class MoneyTrackerApp {
     this.stagedFiles = [];
     this.editingStateCode = null;
     this._piManual = false;
+    this.activeProfileName = null;
   }
 
   /* ============ STORAGE ============ */
   loadState() {
-    const saved = localStorage.getItem('MONEY_TRACKER_STATE_V3');
+    const saved = localStorage.getItem('MONEY_TRACKER_STATE_V4') || localStorage.getItem('MONEY_TRACKER_STATE_V3');
     if (saved) {
       try {
         const p = JSON.parse(saved);
@@ -131,6 +144,10 @@ class MoneyTrackerApp {
           p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
         if (!p.selectedState) p.selectedState = p.taxStates[0]?.code || 'OK';
+        if (!p.theme) p.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+        Object.keys(DEFAULT_THEME).forEach(k => {
+          if (!p.theme[k]) p.theme[k] = DEFAULT_THEME[k];
+        });
         return p;
       } catch(e) { console.error("State load error:", e); }
     }
@@ -140,13 +157,18 @@ class MoneyTrackerApp {
   saveState() {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => {
-      try { localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state)); }
+      try {
+        localStorage.setItem('MONEY_TRACKER_STATE_V4', JSON.stringify(this.state));
+        this._persistActiveProfile();
+      }
       catch(e) { console.error("Save error:", e); this.showToast("Storage full!"); }
     }, 1500);
   }
 
   /* ============ INIT ============ */
   init() {
+    this.bootstrapProfiles();
+    this.applyTheme();
     this.recalculateBalances();
     this.applyNicknameRules();
     this.cleanSpotify();
@@ -156,10 +178,13 @@ class MoneyTrackerApp {
   }
 
   bindGlobalEvents() {
-    document.getElementById('tabStrip').addEventListener('click', (e) => {
-      const btn = e.target.closest('.tab-btn');
-      if (btn) this.switchTab(btn.dataset.tab);
-    });
+    const tabStrip = document.getElementById('tabStrip');
+    if (tabStrip) {
+      tabStrip.addEventListener('click', (e) => {
+        const btn = e.target.closest('.tab-btn');
+        if (btn) this.switchTab(btn.dataset.tab);
+      });
+    }
 
     document.body.addEventListener('click', (e) => {
       const actionEl = e.target.closest('[data-action]');
@@ -213,7 +238,6 @@ class MoneyTrackerApp {
           this.renderCheckingTable();
         }, 300);
       }
-      // Loan editor live total update
       if (e.target.matches('#loanPI') || e.target.matches('#loanEscrow')) {
         this.updateLoanEditorTotal();
       }
@@ -584,7 +608,6 @@ class MoneyTrackerApp {
     const escrow = parseFloat(loan.escrow) || 0;
     const derived = Math.max(0, total - escrow);
     if (derived > 0) return derived;
-    // Fallback: auto-calc from terms
     return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, parseFloat(loan.termYears) || 30);
   }
 
@@ -702,7 +725,7 @@ class MoneyTrackerApp {
               <div style="font-size:0.75rem; color:var(--text-dim)">Earmarked Sub-balance</div>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
-              <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
+              <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
               <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}">💸</button>
               <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}">⚙️</button>
             </div>
@@ -945,34 +968,191 @@ class MoneyTrackerApp {
 
   /* ============ CALENDAR ============ */
   renderCalendarView() {
-  try {
-    const title = document.getElementById('calendarMonthTitle');
-    const grid = document.getElementById('calendarGrid');
-    const mobile = document.getElementById('calendarMobileList');
-    if (!title || !grid || !mobile) return;
+    try {
+      const title = document.getElementById('calendarMonthTitle');
+      const grid = document.getElementById('calendarGrid');
+      const mobile = document.getElementById('calendarMobileList');
+      if (!title || !grid || !mobile) return;
 
-    const year = this.calendarMonth.getFullYear();
-    const month = this.calendarMonth.getMonth();
-    const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    title.innerText = `${mn[month]} ${year}`;
+      const year = this.calendarMonth.getFullYear();
+      const month = this.calendarMonth.getMonth();
+      const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+      title.innerText = `${mn[month]} ${year}`;
 
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-    const dayMap = new Map();
-    this.state.transactions.forEach(t => {
-      if (t.date && t.date.startsWith(monthPrefix)) {
-        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-        dayMap.get(t.date).push(t);
+      const dayMap = new Map();
+      this.state.transactions.forEach(t => {
+        if (t.date && t.date.startsWith(monthPrefix)) {
+          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+          dayMap.get(t.date).push(t);
+        }
+      });
+      this.state.pendingItems.forEach(t => {
+        if (t.date && t.date.startsWith(monthPrefix)) {
+          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+          dayMap.get(t.date).push(t);
+        }
+      });
+
+      const classify = (t) => {
+        const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+        if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
+        const amt = parseFloat(t.amount) || 0;
+        if (amt > 0) return 'income';
+        if (amt < 0) return 'expense';
+        return 'other';
+      };
+
+      const gridFrag = document.createDocumentFragment();
+      const mobileFrag = document.createDocumentFragment();
+
+      for (let i = 0; i < firstDay; i++) {
+        const ec = document.createElement('div');
+        ec.className = 'calendar-cell other-month';
+        gridFrag.appendChild(ec);
       }
-    });
-    this.state.pendingItems.forEach(t => {
-      if (t.date && t.date.startsWith(monthPrefix)) {
-        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-        dayMap.get(t.date).push(t);
+
+      let totalIncome = 0, totalExpense = 0, totalTransfer = 0, hasActivity = false;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dayTxs = dayMap.get(dateStr) || [];
+
+        let dIncome = 0, dExpense = 0, dTransfer = 0;
+        dayTxs.forEach(t => {
+          const amt = parseFloat(t.amount) || 0;
+          const kind = classify(t);
+          if (kind === 'income') dIncome += amt;
+          else if (kind === 'expense') dExpense += Math.abs(amt);
+          else if (kind === 'transfer') dTransfer += amt;
+        });
+
+        totalIncome += dIncome;
+        totalExpense += dExpense;
+        totalTransfer += dTransfer;
+
+        const cell = document.createElement('div');
+        cell.className = 'calendar-cell';
+        cell.addEventListener('click', () => this.openDayDrawer(dateStr));
+
+        const num = document.createElement('div');
+        num.style.fontWeight = '700';
+        num.style.fontSize = '0.85rem';
+        num.innerText = d;
+        cell.appendChild(num);
+
+        if (dayTxs.length > 0) {
+          hasActivity = true;
+
+          const info = document.createElement('div');
+          info.style.display = 'flex';
+          info.style.flexDirection = 'column';
+          info.style.gap = '1px';
+          info.style.alignItems = 'flex-start';
+          info.style.marginTop = '3px';
+
+          const badge = document.createElement('div');
+          badge.className = 'badge badge-vault';
+          badge.style.fontSize = '0.55rem';
+          badge.style.marginBottom = '2px';
+          badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
+          info.appendChild(badge);
+
+          if (dIncome > 0) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.68rem';
+            l.style.fontWeight = '600';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--accent-positive)';
+            l.innerText = `+$${dIncome.toFixed(2)}`;
+            info.appendChild(l);
+          }
+          if (dExpense > 0) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.68rem';
+            l.style.fontWeight = '600';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--accent-negative)';
+            l.innerText = `-$${dExpense.toFixed(2)}`;
+            info.appendChild(l);
+          }
+          if (Math.abs(dTransfer) >= 0.005) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.6rem';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--text-muted)';
+            l.style.opacity = '0.75';
+            const sign = dTransfer >= 0 ? '+' : '-';
+            l.innerText = `↔ ${sign}$${Math.abs(dTransfer).toFixed(2)}`;
+            info.appendChild(l);
+          }
+
+          cell.appendChild(info);
+        }
+        gridFrag.appendChild(cell);
+
+        if (dayTxs.length > 0) {
+          const mc = document.createElement('div');
+          mc.className = 'calendar-mobile-card has-activity';
+          mc.addEventListener('click', () => this.openDayDrawer(dateStr));
+          mc.innerHTML = `
+            <div style="flex:1;">
+              <div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
+              <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">${dayTxs.length} transaction(s)</div>
+              <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.75rem; font-family:var(--font-mono, monospace);">
+                ${dIncome > 0 ? `<span style="color:var(--accent-positive); font-weight:600;">+$${dIncome.toFixed(2)}</span>` : ''}
+                ${dExpense > 0 ? `<span style="color:var(--accent-negative); font-weight:600;">-$${dExpense.toFixed(2)}</span>` : ''}
+                ${Math.abs(dTransfer) >= 0.005 ? `<span style="color:var(--text-muted);">↔ ${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</span>` : ''}
+              </div>
+            </div>`;
+          mobileFrag.appendChild(mc);
+        }
       }
-    });
+
+      grid.innerHTML = ''; mobile.innerHTML = '';
+      grid.appendChild(gridFrag);
+      if (!hasActivity) {
+        const noAct = document.createElement('div');
+        noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
+        noAct.innerText = 'No transactions this month.';
+        mobileFrag.appendChild(noAct);
+      }
+      mobile.appendChild(mobileFrag);
+
+      const summary = document.getElementById('calendarMonthSummary');
+      if (summary) {
+        const net = totalIncome - totalExpense;
+        summary.innerHTML = `
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem;">
+            <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.15rem;">$${totalIncome.toFixed(2)}</div></div>
+            <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.15rem;">$${totalExpense.toFixed(2)}</div></div>
+            <div class="stat-card"><div class="stat-label">Transfers</div><div class="stat-value mono" style="color:var(--text-muted); font-size:1.15rem;">${totalTransfer >= 0 ? '+' : '-'}$${Math.abs(totalTransfer).toFixed(2)}</div></div>
+            <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-size:1.15rem;">$${net.toFixed(2)}</div></div>
+          </div>`;
+      }
+    } catch(e) { console.error("Calendar error:", e); }
+  }
+
+  changeMonth(btn) {
+    const offset = parseInt(btn.dataset.offset) || 0;
+    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
+    this.renderCalendarView();
+  }
+
+  openDayDrawer(dateStr) {
+    this.currentDrawerDate = dateStr;
+    let drawer = document.getElementById('dayDrawer');
+    if (!drawer) {
+      drawer = document.createElement('div');
+      drawer.id = 'dayDrawer';
+      drawer.className = 'drawer';
+      document.body.appendChild(drawer);
+    }
+    const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
+      .concat(this.state.pendingItems.filter(t => t.date === dateStr));
 
     const classify = (t) => {
       const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
@@ -983,229 +1163,70 @@ class MoneyTrackerApp {
       return 'other';
     };
 
-    const gridFrag = document.createDocumentFragment();
-    const mobileFrag = document.createDocumentFragment();
+    const income = dayTxs.filter(t => classify(t) === 'income');
+    const expenses = dayTxs.filter(t => classify(t) === 'expense');
+    const transfers = dayTxs.filter(t => classify(t) === 'transfer');
+    const other = dayTxs.filter(t => classify(t) === 'other');
 
-    for (let i = 0; i < firstDay; i++) {
-      const ec = document.createElement('div');
-      ec.className = 'calendar-cell other-month';
-      gridFrag.appendChild(ec);
-    }
-
-    let totalIncome = 0, totalExpense = 0, totalTransfer = 0, hasActivity = false;
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayTxs = dayMap.get(dateStr) || [];
-
-      // Classify day totals
-      let dIncome = 0, dExpense = 0, dTransfer = 0;
-      dayTxs.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const kind = classify(t);
-        if (kind === 'income') dIncome += amt;
-        else if (kind === 'expense') dExpense += Math.abs(amt);
-        else if (kind === 'transfer') dTransfer += amt;
-      });
-
-      totalIncome += dIncome;
-      totalExpense += dExpense;
-      totalTransfer += dTransfer;
-
-      const cell = document.createElement('div');
-      cell.className = 'calendar-cell';
-      cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-
-      const num = document.createElement('div');
-      num.style.fontWeight = '700';
-      num.style.fontSize = '0.85rem';
-      num.innerText = d;
-      cell.appendChild(num);
-
-      if (dayTxs.length > 0) {
-        hasActivity = true;
-
-        const info = document.createElement('div');
-        info.style.display = 'flex';
-        info.style.flexDirection = 'column';
-        info.style.gap = '1px';
-        info.style.alignItems = 'flex-start';
-        info.style.marginTop = '3px';
-
-        const badge = document.createElement('div');
-        badge.className = 'badge badge-vault';
-        badge.style.fontSize = '0.55rem';
-        badge.style.marginBottom = '2px';
-        badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
-        info.appendChild(badge);
-
-        if (dIncome > 0) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.68rem';
-          l.style.fontWeight = '600';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--accent-positive)';
-          l.innerText = `+$${dIncome.toFixed(2)}`;
-          info.appendChild(l);
-        }
-        if (dExpense > 0) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.68rem';
-          l.style.fontWeight = '600';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--accent-negative)';
-          l.innerText = `-$${dExpense.toFixed(2)}`;
-          info.appendChild(l);
-        }
-        if (Math.abs(dTransfer) >= 0.005) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.6rem';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--text-muted)';
-          l.style.opacity = '0.75';
-          const sign = dTransfer >= 0 ? '+' : '-';
-          l.innerText = `↔ ${sign}$${Math.abs(dTransfer).toFixed(2)}`;
-          info.appendChild(l);
-        }
-
-        cell.appendChild(info);
-      }
-      gridFrag.appendChild(cell);
-
-      // Mobile card
-      if (dayTxs.length > 0) {
-        const mc = document.createElement('div');
-        mc.className = 'calendar-mobile-card has-activity';
-        mc.addEventListener('click', () => this.openDayDrawer(dateStr));
-        mc.innerHTML = `
-          <div style="flex:1;">
-            <div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">${dayTxs.length} transaction(s)</div>
-            <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.75rem; font-family:var(--font-mono, monospace);">
-              ${dIncome > 0 ? `<span style="color:var(--accent-positive); font-weight:600;">+$${dIncome.toFixed(2)}</span>` : ''}
-              ${dExpense > 0 ? `<span style="color:var(--accent-negative); font-weight:600;">-$${dExpense.toFixed(2)}</span>` : ''}
-              ${Math.abs(dTransfer) >= 0.005 ? `<span style="color:var(--text-muted);">↔ ${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</span>` : ''}
-            </div>
-          </div>`;
-        mobileFrag.appendChild(mc);
-      }
-    }
-
-    grid.innerHTML = ''; mobile.innerHTML = '';
-    grid.appendChild(gridFrag);
-    if (!hasActivity) {
-      const noAct = document.createElement('div');
-      noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
-      noAct.innerText = 'No transactions this month.';
-      mobileFrag.appendChild(noAct);
-    }
-    mobile.appendChild(mobileFrag);
-
-    const summary = document.getElementById('calendarMonthSummary');
-    if (summary) {
-      const net = totalIncome - totalExpense;
-      summary.innerHTML = `
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem;">
-          <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.15rem;">$${totalIncome.toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.15rem;">$${totalExpense.toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Transfers</div><div class="stat-value mono" style="color:var(--text-muted); font-size:1.15rem;">${totalTransfer >= 0 ? '+' : '-'}$${Math.abs(totalTransfer).toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-size:1.15rem;">$${net.toFixed(2)}</div></div>
+    const renderGroup = (label, txs, color) => {
+      if (!txs.length) return '';
+      const total = txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      return `
+        <div style="margin-bottom:1.1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+            <span class="stat-label" style="font-size:0.68rem; color:${color};">${label} · ${txs.length}</span>
+            <span class="mono" style="font-size:0.85rem; font-weight:600; color:${color};">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</span>
+          </div>
+          ${txs.map(t => `
+            <div style="background:var(--bg); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+              <div style="font-weight:700; font-size:0.9rem;">${this.escapeHtml(t.nickname || t.description)}</div>
+              <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
+                <span class="badge badge-posted">${t.category}</span>
+              </div>
+            </div>`).join('')}
         </div>`;
-    }
-  } catch(e) { console.error("Calendar error:", e); }
-}
+    };
 
-  changeMonth(btn) {
-    const offset = parseInt(btn.dataset.offset) || 0;
-    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
-    this.renderCalendarView();
-  }
+    const dIncome = income.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+    const dExpense = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
+    const dTransfer = transfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
-  openDayDrawer(dateStr) {
-  this.currentDrawerDate = dateStr;
-  let drawer = document.getElementById('dayDrawer');
-  if (!drawer) {
-    drawer = document.createElement('div');
-    drawer.id = 'dayDrawer';
-    drawer.className = 'drawer';
-    document.body.appendChild(drawer);
-  }
-  const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
-    .concat(this.state.pendingItems.filter(t => t.date === dateStr));
-
-  const classify = (t) => {
-    const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
-    if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
-    const amt = parseFloat(t.amount) || 0;
-    if (amt > 0) return 'income';
-    if (amt < 0) return 'expense';
-    return 'other';
-  };
-
-  const income = dayTxs.filter(t => classify(t) === 'income');
-  const expenses = dayTxs.filter(t => classify(t) === 'expense');
-  const transfers = dayTxs.filter(t => classify(t) === 'transfer');
-  const other = dayTxs.filter(t => classify(t) === 'other');
-
-  const renderGroup = (label, txs, color) => {
-    if (!txs.length) return '';
-    const total = txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-    return `
-      <div style="margin-bottom:1.1rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-subtle); margin-bottom:0.5rem;">
-          <span class="stat-label" style="font-size:0.68rem; color:${color};">${label} · ${txs.length}</span>
-          <span class="mono" style="font-size:0.85rem; font-weight:600; color:${color};">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</span>
+    drawer.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3 style="font-size:1.1rem; font-weight:700;">Details for ${dateStr}</h3>
+        <button class="btn btn-sm" data-action="closeDrawer">Close</button>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.5rem; margin-bottom:1rem;">
+        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+          <div class="stat-label" style="font-size:0.58rem;">Income</div>
+          <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-positive);">+$${dIncome.toFixed(2)}</div>
         </div>
-        ${txs.map(t => `
-          <div style="background:var(--bg-base); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
-            <div style="font-weight:700; font-size:0.9rem;">${this.escapeHtml(t.nickname || t.description)}</div>
-            <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
-              <span class="badge badge-posted">${t.category}</span>
-            </div>
-          </div>`).join('')}
-      </div>`;
-  };
-
-  const dIncome = income.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-  const dExpense = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
-  const dTransfer = transfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-
-  drawer.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-      <h3 style="font-size:1.1rem; font-weight:700;">Details for ${dateStr}</h3>
-      <button class="btn btn-sm" data-action="closeDrawer">Close</button>
-    </div>
-    <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.5rem; margin-bottom:1rem;">
-      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
-        <div class="stat-label" style="font-size:0.58rem;">Income</div>
-        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-positive);">+$${dIncome.toFixed(2)}</div>
+        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+          <div class="stat-label" style="font-size:0.58rem;">Expenses</div>
+          <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-negative);">-$${dExpense.toFixed(2)}</div>
+        </div>
+        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+          <div class="stat-label" style="font-size:0.58rem;">Transfers</div>
+          <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</div>
+        </div>
       </div>
-      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
-        <div class="stat-label" style="font-size:0.58rem;">Expenses</div>
-        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-negative);">-$${dExpense.toFixed(2)}</div>
-      </div>
-      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
-        <div class="stat-label" style="font-size:0.58rem;">Transfers</div>
-        <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</div>
-      </div>
-    </div>
-    ${dayTxs.length === 0 ? '<div style="color:var(--text-muted);">No transactions.</div>' :
-      renderGroup('Income', income, 'var(--accent-positive)') +
-      renderGroup('Expenses', expenses, 'var(--accent-negative)') +
-      renderGroup('Transfers', transfers, 'var(--text-muted)') +
-      renderGroup('Other', other, 'var(--text-muted)')}
-  `;
-  drawer.classList.add('active');
-}
+      ${dayTxs.length === 0 ? '<div style="color:var(--text-muted);">No transactions.</div>' :
+        renderGroup('Income', income, 'var(--accent-positive)') +
+        renderGroup('Expenses', expenses, 'var(--accent-negative)') +
+        renderGroup('Transfers', transfers, 'var(--text-muted)') +
+        renderGroup('Other', other, 'var(--text-muted)')}
+    `;
+    drawer.classList.add('active');
+  }
 
   closeDrawer() {
     document.getElementById('dayDrawer')?.classList.remove('active');
   }
 
   /* ============================================================
-     DEBTS — REDESIGNED
+     DEBTS
      ============================================================ */
   renderDebtsView() {
     const loans = this.state.loans || [];
@@ -1247,7 +1268,7 @@ class MoneyTrackerApp {
                   <button class="btn btn-sm" data-action="openEditLoanModal" data-loan-id="${l.id}">⚙️</button>
                 </div>
               </div>
-              <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
+              <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
                   <span style="color:var(--text-muted); font-size:0.75rem; letter-spacing:0.04em; text-transform:uppercase;">Monthly Payment</span>
                   <span class="mono" style="font-weight:700; font-size:0.9rem;">$${totalPmt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
@@ -1307,7 +1328,6 @@ class MoneyTrackerApp {
       </div>`;
   }
 
-  // Live-computes the total in the loan editor as the user types
   updateLoanEditorTotal() {
     const pi = parseFloat(document.getElementById('loanPI')?.value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow')?.value) || 0;
@@ -1332,7 +1352,6 @@ class MoneyTrackerApp {
     const autoPI = this.calculatePI(bal, rate, term);
     const storedPI = this.getLoanPI(loan);
 
-    // P&I: manual override > stored > auto
     let pi;
     if (this._piManual) {
       pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
@@ -1351,12 +1370,11 @@ class MoneyTrackerApp {
     const resEl = document.getElementById('loanSimResults');
     if (!resEl) return;
 
-    // Guard: if payment can't cover interest, show a red warning box
     if (totalMonthly <= monthlyInterest || pi <= 0) {
       resEl.innerHTML = `
         <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm); margin-top:1rem;">
-          <div class="stat-label" style="color:var(--red);">⚠ Payment too low to cover interest</div>
-          <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
+          <div class="stat-label" style="color:var(--accent-negative);">⚠ Payment too low to cover interest</div>
+          <div style="font-size:0.85rem; color:var(--text-main); margin-top:0.4rem;">
             Your P&amp;I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
             of <span class="mono">$${monthlyInterest.toFixed(2)}</span>, so the loan would never pay off.
           </div>
@@ -1380,31 +1398,24 @@ class MoneyTrackerApp {
     const monthsLabel = yr > 0 ? `${yr} yr${yr !== 1 ? 's' : ''}, ${mo} mo` : `${mo} mo`;
     const payoffDate = this.getPayoffDate(result.months);
 
-    const yrBaseline = Math.floor(baseline.months / 12);
-    const moBaseline = baseline.months % 12;
-    const baselineMonthsLabel = yrBaseline > 0 ? `${yrBaseline} yr${yrBaseline !== 1 ? 's' : ''}, ${moBaseline} mo` : `${moBaseline} mo`;
     const baselinePayoffDate = this.getPayoffDate(baseline.months);
 
-    // First-month breakdown
     const interestMonth1 = monthlyInterest;
     const principalMonth1 = Math.max(0, pi - interestMonth1);
 
-    // Lifetime totals
     const totalPaid = bal + result.totalInterest;
     const interestRatio = bal > 0 ? (result.totalInterest / bal) * 100 : 0;
 
     const hasExtra = extra > 0;
 
     resEl.innerHTML = `
-      <!-- PAYOFF DATE -->
-      <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-md); padding:1rem 1.1rem;">
+      <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid var(--border-hover); border-radius:var(--radius-md); padding:1rem 1.1rem;">
         <div class="stat-label" style="font-size:0.7rem;">PAYOFF DATE</div>
         <div class="mono" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary); line-height:1.1; margin-top:2px;">${payoffDate}</div>
         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">In ${monthsLabel} from now</div>
       </div>
 
-      <!-- MONTH-BY-MONTH (first payment) -->
-      <div style="margin-top:1rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+      <div style="margin-top:1rem; background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTH 1 BREAKDOWN</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Your payment</span>
@@ -1420,8 +1431,7 @@ class MoneyTrackerApp {
         </div>
       </div>
 
-      <!-- LIFETIME TOTALS -->
-      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+      <div style="margin-top:0.75rem; background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">LIFETIME TOTALS</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Total you'll pay</span>
@@ -1438,7 +1448,6 @@ class MoneyTrackerApp {
       </div>
 
       ${hasExtra ? `
-      <!-- COMPARISON -->
       <div style="margin-top:0.75rem; background:rgba(0,255,157,0.06); border:1px solid rgba(0,255,157,0.25); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem; color:var(--accent-positive);">✓ WITH $${extra.toFixed(2)} EXTRA / MO</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
@@ -1454,8 +1463,7 @@ class MoneyTrackerApp {
           <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
         </div>
       </div>` : `
-      <!-- HINT -->
-      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
+      <div style="margin-top:0.75rem; background:var(--bg); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
         💡 Try entering an <strong>Extra Payment</strong> above to see how much time and interest you can save.
       </div>`}
     `;
@@ -1539,7 +1547,6 @@ class MoneyTrackerApp {
     const getX = m => padL + (m / maxM) * chartW;
     const getY = b => padT + (1 - b / maxB) * chartH;
 
-    // Legend at top
     const legendY = 14;
     ctx.font = '600 10px Inter';
     ctx.textAlign = 'left';
@@ -1552,7 +1559,6 @@ class MoneyTrackerApp {
     ctx.fillStyle = '#8a8f9e';
     ctx.fillText('Your plan', padL + 105, legendY);
 
-    // Gridlines
     ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
     ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
@@ -1562,7 +1568,6 @@ class MoneyTrackerApp {
       ctx.fillText(this.fmt(val), padL - 6, y + 3);
     }
 
-    // X axis labels
     ctx.textAlign = 'center';
     const totalY = Math.ceil(maxM / 12);
     const yStep = Math.max(1, Math.ceil(totalY / 5));
@@ -1570,14 +1575,12 @@ class MoneyTrackerApp {
       ctx.fillText(`Yr ${y}`, getX(y * 12), H - padB + 16);
     }
 
-    // Baseline (dashed purple)
     ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
     baseline.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Fill under current line
     ctx.beginPath();
     schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.lineTo(getX(schedule[schedule.length - 1].month), padT + chartH);
@@ -1588,7 +1591,6 @@ class MoneyTrackerApp {
     grad.addColorStop(1, 'rgba(0,229,255,0)');
     ctx.fillStyle = grad; ctx.fill();
 
-    // Current (solid cyan)
     ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
     schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
@@ -1622,7 +1624,6 @@ class MoneyTrackerApp {
     const rate = parseFloat(l.rate) || 0;
     const escrow = parseFloat(l.escrow) || 0;
     const totalPmt = parseFloat(l.minPayment) || 0;
-    // P&I = total - escrow, or auto-calc if missing
     let pi = Math.max(0, totalPmt - escrow);
     if (pi <= 0) pi = this.calculatePI(bal, rate, l.termYears || 30);
     const totalDisplay = pi + escrow;
@@ -1652,7 +1653,7 @@ class MoneyTrackerApp {
               <input type="number" id="loanTerm" value="${l.termYears || 30}">
             </div>
 
-            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
+            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
               <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTHLY PAYMENT</div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <div>
@@ -1706,7 +1707,7 @@ class MoneyTrackerApp {
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
     const filter = document.getElementById('loanFilter').value.trim();
     if (!name || isNaN(bal) || isNaN(rate)) { alert('Please fill in name, balance, and rate.'); return; }
-    const minPayment = pi + esc; // total
+    const minPayment = pi + esc;
     this.state.loans.push({
       id: `loan_${Date.now()}`,
       name, balance: bal, initialBalance: bal,
@@ -1732,7 +1733,6 @@ class MoneyTrackerApp {
     l.minPayment = pi + esc;
     l.escrow = esc;
     l.paymentFilter = document.getElementById('loanFilter').value.trim();
-    // Reset manual override so it re-derives from the new saved values
     this._piManual = false;
     this.saveState();
     this.closeModal();
@@ -1778,97 +1778,95 @@ class MoneyTrackerApp {
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
-  // Only fall back to default if the input is missing or unparseable —
-  // NOT when the value is 0.
-  const get = (id, def) => {
-    const raw = document.getElementById(id)?.value;
-    const v = parseFloat(raw);
-    return isNaN(v) ? def : v;
-  };
+    const get = (id, def) => {
+      const raw = document.getElementById(id)?.value;
+      const v = parseFloat(raw);
+      return isNaN(v) ? def : v;
+    };
 
-  const hourly = get('payHourlyRate', 17);   // default 0 now, matching the HTML
-  const hours = get('payHours', 40);
-  const weeks = get('payWeeks', 52);
-  const benefits = get('payBenefits', 0);
-  const fedRate = get('payFederalRate', 12);
-  const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
-  const period = document.getElementById('payPeriod')?.value || 'yearly';
+    const hourly = get('payHourlyRate', 0);
+    const hours = get('payHours', 40);
+    const weeks = get('payWeeks', 52);
+    const benefits = get('payBenefits', 0);
+    const fedRate = get('payFederalRate', 12);
+    const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
+    const period = document.getElementById('payPeriod')?.value || 'yearly';
 
-  const weeklyGross = hourly * hours;
-  const annualGross = weeklyGross * weeks;
+    const weeklyGross = hourly * hours;
+    const annualGross = weeklyGross * weeks;
 
-  const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
-  let stateTax = 0;
-  let effectiveStateRate = 0;
-  if (stateData) {
-    stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
-    effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
-  }
-
-  const fedTax = annualGross * (fedRate / 100);
-  const ss = annualGross * 0.062;
-  const med = annualGross * 0.0145;
-  const totalTax = fedTax + stateTax + ss + med;
-  const annualBenefits = benefits * 12;
-  const annualNet = annualGross - totalTax - annualBenefits;
-
-  const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
-  const div = divisors[period] || 1;
-  const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
-
-  const pGross = annualGross / div;
-  const pNet = annualNet / div;
-  const pFed = fedTax / div;
-  const pState = stateTax / div;
-  const pSS = ss / div;
-  const pMed = med / div;
-  const pBenefits = annualBenefits / div;
-
-  let bracketBreakdown = '';
-  if (stateData && stateData.brackets.length > 1 && annualGross > 0) {
-    const rows = [];
-    for (const b of stateData.brackets) {
-      if (annualGross <= b.min) break;
-      const taxable = Math.min(annualGross, b.max) - b.min;
-      if (taxable <= 0) continue;
-      const taxAtBracket = taxable * (b.rate / 100);
-      const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
-      rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
-        <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
-        <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
-      </div>`);
+    const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
+    let stateTax = 0;
+    let effectiveStateRate = 0;
+    if (stateData) {
+      stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
+      effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
     }
-    if (rows.length > 0) {
-      bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
-        ${rows.join('')}
-      </div>`;
-    }
-  }
 
-  const el = document.getElementById('paycheckResults');
-  if (!el) return;
-  el.innerHTML = `
-    <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
-      <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
-      <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
-    </div>
-    <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
-      <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
-      <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
-    </div>
-    <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
-      <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
-        <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
-        <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
-        <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
-        <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
-        <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
+    const fedTax = annualGross * (fedRate / 100);
+    const ss = annualGross * 0.062;
+    const med = annualGross * 0.0145;
+    const totalTax = fedTax + stateTax + ss + med;
+    const annualBenefits = benefits * 12;
+    const annualNet = annualGross - totalTax - annualBenefits;
+
+    const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
+    const div = divisors[period] || 1;
+    const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
+
+    const pGross = annualGross / div;
+    const pNet = annualNet / div;
+    const pFed = fedTax / div;
+    const pState = stateTax / div;
+    const pSS = ss / div;
+    const pMed = med / div;
+    const pBenefits = annualBenefits / div;
+
+    let bracketBreakdown = '';
+    if (stateData && stateData.brackets.length > 1 && annualGross > 0) {
+      const rows = [];
+      for (const b of stateData.brackets) {
+        if (annualGross <= b.min) break;
+        const taxable = Math.min(annualGross, b.max) - b.min;
+        if (taxable <= 0) continue;
+        const taxAtBracket = taxable * (b.rate / 100);
+        const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
+        rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
+          <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
+          <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
+        </div>`);
+      }
+      if (rows.length > 0) {
+        bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
+          ${rows.join('')}
+        </div>`;
+      }
+    }
+
+    const el = document.getElementById('paycheckResults');
+    if (!el) return;
+    el.innerHTML = `
+      <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
+        <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
+        <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
       </div>
-      ${bracketBreakdown}
-    </details>`;
-}
+      <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
+        <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
+        <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
+      </div>
+      <details style="background:var(--bg); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
+        <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
+          <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
+          <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
+          <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
+          <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
+          <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
+        </div>
+        ${bracketBreakdown}
+      </details>`;
+  }
 
   /* ============ TAX BRACKET MODAL ============ */
   openTaxBracketModal() {
@@ -1898,15 +1896,15 @@ class MoneyTrackerApp {
           <div id="tbEditor"></div>
 
           <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
-  <div style="display:flex; gap:0.5rem;">
-    <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
-    <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
-  </div>
-  <div style="display:flex; gap:0.5rem;">
-    <button class="btn" data-action="closeModal">Cancel</button>
-    <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
-  </div>
-</div>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
+              <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn" data-action="closeModal">Cancel</button>
+              <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
+            </div>
+          </div>
         </div>
       </div>`);
     if (current) this.loadBracketEditor(current.code);
@@ -1929,7 +1927,7 @@ class MoneyTrackerApp {
       </div>`).join('');
 
     editor.innerHTML = `
-      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
+      <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover);">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
           <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" value="${this.escapeHtml(state.code)}" maxlength="4"></div>
           <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" value="${this.escapeHtml(state.name)}"></div>
@@ -2006,17 +2004,17 @@ class MoneyTrackerApp {
   }
 
   resetTaxBrackets() {
-  if (!confirm(
-    'Reset to default state brackets?\n\n' +
-    'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
-    'Any custom states you have added will be removed.'
-  )) return;
-  this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-  this.state.selectedState = 'OK';
-  this.saveState();
-  this.closeModal();
-  this.renderTabContent('paycheck');
-  this.showToast('Reset to default state brackets');
+    if (!confirm(
+      'Reset to default state brackets?\n\n' +
+      'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
+      'Any custom states you have added will be removed.'
+    )) return;
+    this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+    this.state.selectedState = 'OK';
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('paycheck');
+    this.showToast('Reset to default state brackets');
   }
 
   newTaxState() {
@@ -2024,7 +2022,7 @@ class MoneyTrackerApp {
     const editor = document.getElementById('tbEditor');
     if (!editor) return;
     editor.innerHTML = `
-      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
+      <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover);">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
           <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" placeholder="e.g. KS" maxlength="4"></div>
           <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" placeholder="e.g. Kansas"></div>
@@ -2045,46 +2043,46 @@ class MoneyTrackerApp {
 
   /* ============ FORECASTER ============ */
   syncForecaster() {
-  const estimated = this.state.transactions.filter(t => t.status === 'estimated');
+    const estimated = this.state.transactions.filter(t => t.status === 'estimated');
 
-  // Group by groupId — a recurring item exists as N copies of the same
-  // group, so we must only count each unique group ONCE.
-  // Transactions without a groupId (legacy data) are treated as their
-  // own single-item group.
-  const groups = new Map();
-  estimated.forEach(t => {
-    const gid = t.groupId || ('solo_' + t.id);
-    if (!groups.has(gid)) groups.set(gid, t);
-  });
+    const groups = new Map();
+    estimated.forEach(t => {
+      const gid = t.groupId || ('solo_' + t.id);
+      if (!groups.has(gid)) groups.set(gid, t);
+    });
 
-  let inc = 0, fix = 0;
-  groups.forEach(t => {
-    const abs = Math.abs(parseFloat(t.amount) || 0);
-    const cfg = t.ruleConfig || { interval: 1, freq: 'months' };
-    const int = Math.max(1, cfg.interval || 1);
-    let monthly = 0;
-    if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
-    else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
-    else if (cfg.freq === 'months') monthly = abs / int;
-    else if (cfg.freq === 'years') monthly = abs / (12 * int);
-    else monthly = abs; // safe default
+    let inc = 0, fix = 0;
+    groups.forEach(t => {
+      const abs = Math.abs(parseFloat(t.amount) || 0);
+      const cfg = t.ruleConfig || { interval: 1, freq: 'months' };
+      const int = Math.max(1, cfg.interval || 1);
+      let monthly = 0;
+      if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
+      else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+      else if (cfg.freq === 'months') monthly = abs / int;
+      else if (cfg.freq === 'years') monthly = abs / (12 * int);
+      else monthly = abs;
 
-    const isIncome = t.amount > 0 || t.category === 'Income' || t.flow === 'Income';
-    if (isIncome) inc += monthly;
-    else fix += monthly;
-  });
+      const isIncome = t.amount > 0 || t.category === 'Income' || t.flow === 'Income';
+      if (isIncome) inc += monthly;
+      else fix += monthly;
+    });
 
-  const incEl = document.getElementById('fcAvgIncome');
-  const fixEl = document.getElementById('fcAvgFixed');
-  if (incEl) incEl.value = inc.toFixed(2);
-  if (fixEl) fixEl.value = fix.toFixed(2);
+    const incEl = document.getElementById('fcAvgIncome');
+    const fixEl = document.getElementById('fcAvgFixed');
+    if (incEl) incEl.value = inc.toFixed(2);
+    if (fixEl) fixEl.value = fix.toFixed(2);
 
-  this.renderForecaster();
-  this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
-}
+    this.renderForecaster();
+    this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
+  }
 
   renderForecaster() {
-    const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const gi = id => {
+      const raw = document.getElementById(id)?.value;
+      const v = parseFloat(raw);
+      return isNaN(v) ? 0 : v;
+    };
     const avgInc = gi('fcAvgIncome');
     const avgFix = gi('fcAvgFixed');
     const avgVar = gi('fcAvgVariable');
@@ -2147,7 +2145,7 @@ class MoneyTrackerApp {
           <div style="min-width:0; flex:1;">
             <div style="display:flex; align-items:center; gap:6px;">
               <span style="font-size:0.9rem;">${icon}</span>
-              <span class="badge" style="background:var(--bg-base); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
+              <span class="badge" style="background:var(--bg); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
             </div>
             <div style="font-weight:600; font-size:0.85rem; margin-top:4px;">${this.escapeHtml(s.name)}</div>
             <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(subtitle)}</div>
@@ -2170,7 +2168,11 @@ class MoneyTrackerApp {
 
   /* ============ APY ============ */
   renderAPY() {
-    const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const gv = id => {
+      const raw = document.getElementById(id)?.value;
+      const v = parseFloat(raw);
+      return isNaN(v) ? 0 : v;
+    };
     const principal = gv('apyPrincipal');
     const rate = gv('apyRate') / 100;
     const monthly = gv('apyMonthly');
@@ -2192,7 +2194,7 @@ class MoneyTrackerApp {
 
     const sum = document.getElementById('apySummary');
     if (sum) sum.innerHTML = `
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div><div class="stat-label">PROJECTED END BALANCE</div>
           <div class="stat-value mono" style="color:var(--accent-positive); font-size:1.3rem;">$${total.toFixed(2)}</div></div>
         <div><div class="stat-label">TOTAL INTEREST EARNED</div>
@@ -2462,7 +2464,7 @@ class MoneyTrackerApp {
     });
     if (legend) legend.innerHTML = display.map(([cat, val]) => {
       const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-      return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
+      return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
         <span style="width:8px; height:8px; border-radius:50%; background:${cfg.color};"></span>
         <span style="font-weight:500;">${cat}</span>
         <span style="color:var(--text-muted); margin-left:auto;">$${val.toFixed(0)}</span>
@@ -2481,7 +2483,11 @@ class MoneyTrackerApp {
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     ctx.clearRect(0, 0, rect.width, 220);
 
-    const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const gv = id => {
+      const raw = document.getElementById(id)?.value;
+      const v = parseFloat(raw);
+      return isNaN(v) ? 0 : v;
+    };
     const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
     let scenSum = 0;
     (this.state.scenarios || []).forEach(s => {
@@ -2546,7 +2552,7 @@ class MoneyTrackerApp {
             <h2 style="font-size:1.2rem; font-weight:700;">⚙ Active Rules</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
-          <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
+          <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover); margin-bottom:1.5rem;">
             <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">+ ADD NEW RULE</div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
               <div><label class="stat-label">Contains</label><input type="text" id="newRuleSearch"></div>
@@ -2563,7 +2569,7 @@ class MoneyTrackerApp {
               <div>
                 ${nicknameRules.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>' :
                   nicknameRules.map(r => `
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
                       <div><span style="color:var(--text-muted); font-size:0.8rem;">Contains:</span>
                         <strong style="font-family:var(--font-mono);">${this.escapeHtml(r.searchPattern)}</strong> →
                         <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span></div>
@@ -2618,7 +2624,7 @@ class MoneyTrackerApp {
             <h2 style="font-size:1.2rem; font-weight:700;">Import Bank CSV</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
-          <div style="border:2px dashed var(--border-glow); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
+          <div style="border:2px dashed var(--border-hover); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
             <p>Click to browse CSV files</p>
             <p style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem;">Format: Date, Description, Amount, Balance</p>
           </div>
@@ -3298,50 +3304,383 @@ class MoneyTrackerApp {
     this.showToast(`Added ${count} recurring items`);
   }
 
-  exportJSON() {
-    const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
+  /* ============ PROFILES ============ */
+  getProfileKey(name) {
+    return `MONEY_TRACKER_PROFILE::${name}`;
+  }
+
+  getProfileListKey() {
+    return 'MONEY_TRACKER_PROFILES';
+  }
+
+  listProfiles() {
+    try {
+      const raw = localStorage.getItem(this.getProfileListKey());
+      return raw ? JSON.parse(raw) : [];
+    } catch(e) { return []; }
+  }
+
+  saveProfileList(list) {
+    localStorage.setItem(this.getProfileListKey(), JSON.stringify(list));
+  }
+
+  migrateLegacyState() {
+    const v4 = localStorage.getItem('MONEY_TRACKER_STATE_V4');
+    const v3 = localStorage.getItem('MONEY_TRACKER_STATE_V3');
+    if (!v4 && v3) {
+      localStorage.setItem('MONEY_TRACKER_STATE_V4', v3);
+      const list = this.listProfiles();
+      if (!list.includes('Default')) {
+        list.push('Default');
+        this.saveProfileList(list);
+      }
+      localStorage.setItem(this.getProfileKey('Default'), v3);
+    }
+  }
+
+  bootstrapProfiles() {
+    this.migrateLegacyState();
+    let list = this.listProfiles();
+    if (list.length === 0) {
+      list = ['Default'];
+      this.saveProfileList(list);
+      localStorage.setItem(this.getProfileKey('Default'), JSON.stringify(this.state));
+    }
+    const lastActive = localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE');
+    this.activeProfileName = (lastActive && list.includes(lastActive)) ? lastActive : list[0];
+    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfileName);
+  }
+
+  switchProfile(name) {
+    if (!name || name === this.activeProfileName) return;
+    this._persistActiveProfile();
+    try {
+      const raw = localStorage.getItem(this.getProfileKey(name));
+      if (!raw) { this.showToast(`Profile "${name}" not found`); return; }
+      this.state = JSON.parse(raw);
+      if (!this.state.theme) this.state.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+      Object.keys(DEFAULT_THEME).forEach(k => {
+        if (!this.state.theme[k]) this.state.theme[k] = DEFAULT_THEME[k];
+      });
+      this.activeProfileName = name;
+      localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
+      this.applyTheme();
+      this.selectedRows.clear();
+      this.closeModal();
+      this.init();
+      this.showToast(`Switched to "${name}"`);
+    } catch(e) {
+      console.error(e);
+      this.showToast('Failed to load profile');
+    }
+  }
+
+  _persistActiveProfile() {
+    if (!this.activeProfileName) return;
+    try {
+      localStorage.setItem(this.getProfileKey(this.activeProfileName), JSON.stringify(this.state));
+    } catch(e) { console.error('Profile save failed', e); }
+  }
+
+  createProfile(name) {
+    name = (name || '').trim();
+    if (!name) { this.showToast('Enter a profile name'); return; }
+    const list = this.listProfiles();
+    if (list.includes(name)) {
+      this.showToast(`"${name}" already exists`);
+      return;
+    }
+    try {
+      localStorage.setItem(this.getProfileKey(name), JSON.stringify(this.state));
+      list.push(name);
+      this.saveProfileList(list);
+      this.showToast(`Profile "${name}" created`);
+    } catch(e) { this.showToast('Storage full'); }
+  }
+
+  renameProfile(oldName, newName) {
+    newName = (newName || '').trim();
+    if (!oldName || !newName || oldName === newName) return;
+    const list = this.listProfiles();
+    if (!list.includes(oldName)) return;
+    if (list.includes(newName)) { this.showToast(`"${newName}" already exists`); return; }
+    const data = localStorage.getItem(this.getProfileKey(oldName));
+    if (!data) return;
+    localStorage.setItem(this.getProfileKey(newName), data);
+    localStorage.removeItem(this.getProfileKey(oldName));
+    const idx = list.indexOf(oldName);
+    list[idx] = newName;
+    this.saveProfileList(list);
+    if (this.activeProfileName === oldName) {
+      this.activeProfileName = newName;
+      localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', newName);
+    }
+    this.showToast(`Renamed to "${newName}"`);
+    this.renderSettingsModal();
+  }
+
+  deleteProfile(name) {
+    const list = this.listProfiles();
+    if (list.length <= 1) { this.showToast('Cannot delete your only profile'); return; }
+    if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
+    const wasActive = name === this.activeProfileName;
+    localStorage.removeItem(this.getProfileKey(name));
+    const newList = list.filter(n => n !== name);
+    this.saveProfileList(newList);
+    if (wasActive) {
+      this.activeProfileName = newList[0];
+      localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfileName);
+      const raw = localStorage.getItem(this.getProfileKey(this.activeProfileName));
+      if (raw) this.state = JSON.parse(raw);
+      this.applyTheme();
+      this.init();
+    }
+    this.showToast(`Deleted "${name}"`);
+    this.renderSettingsModal();
+  }
+
+  importProfileJSON(file, name) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (!data || typeof data !== 'object') throw new Error('Invalid');
+        if (!data.theme) data.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+
+        let profileName = (name || '').trim() ||
+          (file.name ? file.name.replace(/\.json$/i, '') : 'Imported');
+
+        const list = this.listProfiles();
+        let overwrote = false;
+        if (list.includes(profileName)) {
+          if (!confirm(`A profile named "${profileName}" already exists. Overwrite it?`)) return;
+          overwrote = true;
+        } else {
+          list.push(profileName);
+          this.saveProfileList(list);
+        }
+
+        localStorage.setItem(this.getProfileKey(profileName), JSON.stringify(data));
+        this.showToast(overwrote ? `Overwrote "${profileName}"` : `Imported "${profileName}"`);
+        this.renderSettingsModal();
+      } catch(err) {
+        alert('Invalid JSON file.');
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  exportProfileJSON(name) {
+    const data = localStorage.getItem(this.getProfileKey(name));
+    if (!data) { this.showToast('Profile not found'); return; }
+    const blob = new Blob([data], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `money_tracker_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `${name.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    this.showToast(`Exported "${name}"`);
+  }
+
+  /* ============ THEME ============ */
+  applyTheme() {
+    const t = this.state.theme || DEFAULT_THEME;
+    const root = document.documentElement.style;
+    root.setProperty('--accent-primary', t.accentPrimary);
+    root.setProperty('--accent-secondary', t.accentSecondary);
+    root.setProperty('--accent-positive', t.accentPositive);
+    root.setProperty('--accent-negative', t.accentNegative);
+    root.setProperty('--accent-warning', t.accentWarning);
+    root.setProperty('--bg', t.bg);
+    root.setProperty('--surface', t.surface);
+    root.setProperty('--surface-2', t.surface2);
+    root.setProperty('--border', this._hexToRgba(t.accentPrimary, 0.08));
+    root.setProperty('--border-hover', this._hexToRgba(t.accentPrimary, 0.25));
+    root.setProperty('--border-glow', this._hexToRgba(t.accentPrimary, 0.4));
+    document.body.style.background = t.bg;
+  }
+
+  setThemeColor(key, value) {
+    if (!this.state.theme) this.state.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+    this.state.theme[key] = value;
+    this.applyTheme();
+    this.saveState();
+  }
+
+  resetTheme() {
+    this.state.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+    this.applyTheme();
+    this.saveState();
+    this.renderSettingsModal();
+    this.showToast('Theme reset');
+  }
+
+  _hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  /* ============ SETTINGS MODAL ============ */
+  openSettings() {
+    this.renderSettingsModal();
+  }
+
+  renderSettingsModal() {
+    const list = this.listProfiles();
+    const active = this.activeProfileName;
+    const theme = this.state.theme || DEFAULT_THEME;
+
+    const colorField = (key, label, desc) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0; border-bottom:1px solid var(--border-subtle); gap:0.75rem;">
+        <div style="min-width:0;">
+          <div style="font-weight:600; font-size:0.85rem;">${label}</div>
+          <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px;">${desc}</div>
+        </div>
+        <input type="color" value="${theme[key]}" data-theme-key="${key}" oninput="app.setThemeColor(this.dataset.themeKey, this.value)"
+          style="width:48px; height:32px; border:1px solid var(--border-subtle); border-radius:6px; background:transparent; cursor:pointer; padding:0;">
+      </div>`;
+
+    const profileRow = (name) => `
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:0.6rem 0.75rem; border-bottom:1px solid var(--border-subtle); gap:0.5rem; ${name === active ? 'background:rgba(0,229,255,0.06); border-left:3px solid var(--accent-primary);' : ''}">
+        <div style="min-width:0; flex:1; cursor:pointer;" onclick="app.switchProfile('${this._esc(name)}')">
+          <div style="font-weight:600; font-size:0.9rem;">${this.escapeHtml(name)} ${name === active ? '<span class="badge" style="background:var(--accent-primary); color:#000; font-size:0.55rem; margin-left:6px;">ACTIVE</span>' : ''}</div>
+        </div>
+        <div style="display:flex; gap:4px; flex-shrink:0;">
+          <button class="btn btn-sm" title="Export" onclick="app.exportProfileJSON('${this._esc(name)}')">⬇</button>
+          <button class="btn btn-sm" title="Rename" onclick="app.promptRenameProfile('${this._esc(name)}')">✎</button>
+          <button class="btn btn-sm btn-danger" title="Delete" onclick="app.deleteProfile('${this._esc(name)}')">✕</button>
+        </div>
+      </div>`;
+
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:780px; max-height:88vh; overflow-y:auto;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; position:sticky; top:0; background:var(--surface); padding-bottom:0.5rem; z-index:10;">
+            <h2 style="font-size:1.25rem; font-weight:700;">⚙ Settings</h2>
+            <button class="btn btn-sm" data-action="closeModal">Close</button>
+          </div>
+
+          <div style="margin-bottom:1.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+              <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-primary);">📁 Profiles</h3>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm" onclick="app.promptNewProfile()">+ New</button>
+                <button class="btn btn-sm" onclick="app.triggerProfileImport()">⬆ Import JSON</button>
+                <input type="file" id="profileImportInput" accept=".json" style="display:none">
+              </div>
+            </div>
+            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); overflow:hidden;">
+              ${list.map(profileRow).join('')}
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem; line-height:1.4;">
+              Each profile is an independent copy of all your data. Click a profile name to switch.
+              Importing a JSON with the same name as an existing profile will <strong>overwrite</strong> it.
+            </div>
+          </div>
+
+          <div style="margin-bottom:1.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+              <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-secondary);">🎨 Theme</h3>
+              <button class="btn btn-sm" onclick="app.resetTheme()">Reset to Default</button>
+            </div>
+            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.5rem 1rem;">
+              ${colorField('accentPrimary', 'Primary Accent', 'Buttons, links, active tabs, chart lines')}
+              ${colorField('accentSecondary', 'Secondary Accent', 'Vaults, forecasts, APY chart')}
+              ${colorField('accentPositive', 'Positive / Income', 'Incoming money, green values')}
+              ${colorField('accentNegative', 'Negative / Expense', 'Outgoing money, red values')}
+              ${colorField('accentWarning', 'Warning / Pending', 'Pending badges, alerts')}
+              ${colorField('bg', 'Background', 'Main app background')}
+              ${colorField('surface', 'Surface', 'Cards and panels')}
+              ${colorField('surface2', 'Surface (Elevated)', 'Modals, dropdowns, elevated layers')}
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem;">
+              Theme is saved to the active profile, so each profile can have its own look.
+            </div>
+          </div>
+
+          <div style="margin-bottom:0.5rem;">
+            <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-warning); margin-bottom:0.75rem;">💾 Data</h3>
+            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.9rem 1rem;">
+              <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
+                <button class="btn btn-sm" onclick="app.exportProfileJSON(app.activeProfileName)">⬇ Export Current Profile</button>
+                <button class="btn btn-sm" onclick="app.openImportWizard()">📥 Import Bank CSV</button>
+              </div>
+              <div style="border-top:1px solid var(--border-subtle); padding-top:0.85rem;">
+                <button class="btn btn-sm btn-danger" onclick="app.clearAllData()">🗑 Clear All Data (This Profile)</button>
+              </div>
+              <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.6rem; line-height:1.4;">
+                All data is stored locally in your browser. Export your profile regularly for a safe backup.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>`);
+
+    const importInput = document.getElementById('profileImportInput');
+    if (importInput) {
+      importInput.addEventListener('change', (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        this.importProfileJSON(f, '');
+        e.target.value = '';
+      });
+    }
+  }
+
+  _esc(str) {
+    return String(str).replace(/'/g, "\\'");
+  }
+
+  promptNewProfile() {
+    const name = prompt('Name for new profile:');
+    if (name) {
+      this.createProfile(name);
+      this.renderSettingsModal();
+    }
+  }
+
+  promptRenameProfile(oldName) {
+    const newName = prompt(`Rename "${oldName}" to:`, oldName);
+    if (newName && newName !== oldName) {
+      this.renameProfile(oldName, newName);
+    }
+  }
+
+  triggerProfileImport() {
+    document.getElementById('profileImportInput')?.click();
+  }
+
+  /* ============ LEGACY EXPORT / IMPORT ============ */
+  exportJSON() {
+    this.exportProfileJSON(this.activeProfileName);
   }
 
   triggerImportJSON() {
-    const input = document.getElementById('jsonInput');
-    input.onchange = (e) => this.importJSON(e);
-    input.click();
+    this.triggerProfileImport();
   }
 
   importJSON(evt) {
     const file = evt.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        this.state = JSON.parse(e.target.result);
-        if (!this.state.taxStates || !this.state.taxStates.length) {
-          this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-        }
-        (this.state.scenarios || []).forEach(s => { if (!s.type) s.type = 'custom'; });
-        this.saveState();
-        this.recalculateBalances();
-        this.init();
-        this.showToast('State restored');
-      } catch(err) { alert('Invalid JSON'); }
-    };
-    reader.readAsText(file);
+    this.importProfileJSON(file, '');
   }
 
   clearAllData() {
-    if (!confirm('Are you sure you want to CLEAR ALL data?')) return;
-    if (!confirm('DOUBLE CONFIRMATION: This will permanently reset everything.')) return;
-    localStorage.removeItem('MONEY_TRACKER_STATE_V3');
-    this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+    if (!confirm(`Clear all data in profile "${this.activeProfileName}"?`)) return;
+    if (!confirm('DOUBLE CONFIRMATION: This cannot be undone.')) return;
+
+    const fresh = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+    fresh.theme = this.state.theme ? JSON.parse(JSON.stringify(this.state.theme)) : JSON.parse(JSON.stringify(DEFAULT_THEME));
+    this.state = fresh;
     this.selectedRows.clear();
+    this._persistActiveProfile();
     this.init();
-    this.showToast('All data cleared');
+    this.showToast('Profile cleared');
   }
 
   /* ============ UTILS ============ */
