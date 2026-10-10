@@ -86,10 +86,11 @@ const DEFAULT_THEME = {
   accentSecondary: '#b26bff',
   accentPositive: '#00ff9d',
   accentNegative: '#ff3d71',
-  accentPending: '#ffb020',
-  bgBase: '#0a0a0f',
-  bgSurface: '#12121a',
-  bgElevated: '#1a1a26'
+  accentWarning: '#ffb020',
+  bg: '#0a0a0f',
+  surface: '#12121a',
+  surface2: '#1a1a26',
+  bgHover: '#222233'
 };
 
 const INITIAL_EMPTY_STATE = {
