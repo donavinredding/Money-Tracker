@@ -1,6 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 6
-   Profiles + Theme Customizer + Settings Menu
+   MONEY TRACKER APP - STEP 7
+   Fixed Theme Variable Names + Profiles + Settings
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -80,19 +80,20 @@ const DEFAULT_TAX_STATES = [
   { code: 'FL', name: 'Florida', brackets: [{ min: 0, max: MAX_BRACKET, rate: 0 }] }
 ];
 
+// Theme uses the SAME variable names as the CSS :root block
 const DEFAULT_THEME = {
   accentPrimary: '#00e5ff',
   accentSecondary: '#b26bff',
   accentPositive: '#00ff9d',
   accentNegative: '#ff3d71',
-  accentWarning: '#ffb020',
-  bg: '#0a0a0f',
-  surface: '#12121a',
-  surface2: '#1a1a24'
+  accentPending: '#ffb020',
+  bgBase: '#0a0a0f',
+  bgSurface: '#12121a',
+  bgElevated: '#1a1a26'
 };
 
 const INITIAL_EMPTY_STATE = {
-  version: 4,
+  version: 5,
   accounts: {
     CHECKING: { id: "CHECKING", name: "Joint Checking", verifiedBalance: 0.00 },
     SAVINGS: { id: "SAVINGS", name: "Joint Savings", verifiedBalance: 0.00 }
@@ -144,10 +145,18 @@ class MoneyTrackerApp {
           p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
         }
         if (!p.selectedState) p.selectedState = p.taxStates[0]?.code || 'OK';
-        if (!p.theme) p.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
-        Object.keys(DEFAULT_THEME).forEach(k => {
-          if (!p.theme[k]) p.theme[k] = DEFAULT_THEME[k];
-        });
+
+        // THEME MIGRATION: if the theme uses the old (broken) keys
+        // (`bg` / `surface` / `surface2` / `accentWarning`), wipe it and
+        // reset to the current default dark theme.
+        if (!p.theme || p.theme.bg !== undefined || p.theme.surface !== undefined || p.theme.accentWarning !== undefined) {
+          p.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+        } else {
+          Object.keys(DEFAULT_THEME).forEach(k => {
+            if (!p.theme[k]) p.theme[k] = DEFAULT_THEME[k];
+          });
+        }
+
         return p;
       } catch(e) { console.error("State load error:", e); }
     }
@@ -725,7 +734,7 @@ class MoneyTrackerApp {
               <div style="font-size:0.75rem; color:var(--text-dim)">Earmarked Sub-balance</div>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
-              <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
+              <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
               <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}">💸</button>
               <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}">⚙️</button>
             </div>
@@ -1178,7 +1187,7 @@ class MoneyTrackerApp {
             <span class="mono" style="font-size:0.85rem; font-weight:600; color:${color};">${total >= 0 ? '+' : ''}$${total.toFixed(2)}</span>
           </div>
           ${txs.map(t => `
-            <div style="background:var(--bg); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+            <div style="background:var(--bg-base); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
               <div style="font-weight:700; font-size:0.9rem;">${this.escapeHtml(t.nickname || t.description)}</div>
               <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
               <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -1199,15 +1208,15 @@ class MoneyTrackerApp {
         <button class="btn btn-sm" data-action="closeDrawer">Close</button>
       </div>
       <div style="display:grid; grid-template-columns: repeat(3, 1fr); gap:0.5rem; margin-bottom:1rem;">
-        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
           <div class="stat-label" style="font-size:0.58rem;">Income</div>
           <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-positive);">+$${dIncome.toFixed(2)}</div>
         </div>
-        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
           <div class="stat-label" style="font-size:0.58rem;">Expenses</div>
           <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--accent-negative);">-$${dExpense.toFixed(2)}</div>
         </div>
-        <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.5rem;">
           <div class="stat-label" style="font-size:0.58rem;">Transfers</div>
           <div class="mono" style="font-size:0.85rem; font-weight:700; color:var(--text-muted);">${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</div>
         </div>
@@ -1268,7 +1277,7 @@ class MoneyTrackerApp {
                   <button class="btn btn-sm" data-action="openEditLoanModal" data-loan-id="${l.id}">⚙️</button>
                 </div>
               </div>
-              <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
+              <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
                   <span style="color:var(--text-muted); font-size:0.75rem; letter-spacing:0.04em; text-transform:uppercase;">Monthly Payment</span>
                   <span class="mono" style="font-weight:700; font-size:0.9rem;">$${totalPmt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
@@ -1409,13 +1418,13 @@ class MoneyTrackerApp {
     const hasExtra = extra > 0;
 
     resEl.innerHTML = `
-      <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid var(--border-hover); border-radius:var(--radius-md); padding:1rem 1.1rem;">
+      <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-md); padding:1rem 1.1rem;">
         <div class="stat-label" style="font-size:0.7rem;">PAYOFF DATE</div>
         <div class="mono" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary); line-height:1.1; margin-top:2px;">${payoffDate}</div>
         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">In ${monthsLabel} from now</div>
       </div>
 
-      <div style="margin-top:1rem; background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+      <div style="margin-top:1rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTH 1 BREAKDOWN</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Your payment</span>
@@ -1431,7 +1440,7 @@ class MoneyTrackerApp {
         </div>
       </div>
 
-      <div style="margin-top:0.75rem; background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
+      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">LIFETIME TOTALS</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Total you'll pay</span>
@@ -1463,7 +1472,7 @@ class MoneyTrackerApp {
           <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
         </div>
       </div>` : `
-      <div style="margin-top:0.75rem; background:var(--bg); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
+      <div style="margin-top:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
         💡 Try entering an <strong>Extra Payment</strong> above to see how much time and interest you can save.
       </div>`}
     `;
@@ -1653,7 +1662,7 @@ class MoneyTrackerApp {
               <input type="number" id="loanTerm" value="${l.termYears || 30}">
             </div>
 
-            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
+            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
               <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTHLY PAYMENT</div>
               <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                 <div>
@@ -1855,7 +1864,7 @@ class MoneyTrackerApp {
         <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
         <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
       </div>
-      <details style="background:var(--bg); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
+      <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
         <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
         <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
           <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
@@ -1927,7 +1936,7 @@ class MoneyTrackerApp {
       </div>`).join('');
 
     editor.innerHTML = `
-      <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover);">
+      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
           <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" value="${this.escapeHtml(state.code)}" maxlength="4"></div>
           <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" value="${this.escapeHtml(state.name)}"></div>
@@ -2022,7 +2031,7 @@ class MoneyTrackerApp {
     const editor = document.getElementById('tbEditor');
     if (!editor) return;
     editor.innerHTML = `
-      <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover);">
+      <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
         <div style="display:grid; grid-template-columns: 1fr 1fr; gap:0.5rem; margin-bottom:1rem;">
           <div><label class="stat-label">State Code</label><input type="text" id="tbStateCode" placeholder="e.g. KS" maxlength="4"></div>
           <div><label class="stat-label">State Name</label><input type="text" id="tbStateName" placeholder="e.g. Kansas"></div>
@@ -2145,7 +2154,7 @@ class MoneyTrackerApp {
           <div style="min-width:0; flex:1;">
             <div style="display:flex; align-items:center; gap:6px;">
               <span style="font-size:0.9rem;">${icon}</span>
-              <span class="badge" style="background:var(--bg); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
+              <span class="badge" style="background:var(--bg-base); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
             </div>
             <div style="font-weight:600; font-size:0.85rem; margin-top:4px;">${this.escapeHtml(s.name)}</div>
             <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(subtitle)}</div>
@@ -2194,7 +2203,7 @@ class MoneyTrackerApp {
 
     const sum = document.getElementById('apySummary');
     if (sum) sum.innerHTML = `
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div><div class="stat-label">PROJECTED END BALANCE</div>
           <div class="stat-value mono" style="color:var(--accent-positive); font-size:1.3rem;">$${total.toFixed(2)}</div></div>
         <div><div class="stat-label">TOTAL INTEREST EARNED</div>
@@ -2464,7 +2473,7 @@ class MoneyTrackerApp {
     });
     if (legend) legend.innerHTML = display.map(([cat, val]) => {
       const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-      return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
+      return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
         <span style="width:8px; height:8px; border-radius:50%; background:${cfg.color};"></span>
         <span style="font-weight:500;">${cat}</span>
         <span style="color:var(--text-muted); margin-left:auto;">$${val.toFixed(0)}</span>
@@ -2552,7 +2561,7 @@ class MoneyTrackerApp {
             <h2 style="font-size:1.2rem; font-weight:700;">⚙ Active Rules</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
-          <div style="background:var(--bg); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-hover); margin-bottom:1.5rem;">
+          <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
             <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">+ ADD NEW RULE</div>
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
               <div><label class="stat-label">Contains</label><input type="text" id="newRuleSearch"></div>
@@ -2569,7 +2578,7 @@ class MoneyTrackerApp {
               <div>
                 ${nicknameRules.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>' :
                   nicknameRules.map(r => `
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
                       <div><span style="color:var(--text-muted); font-size:0.8rem;">Contains:</span>
                         <strong style="font-family:var(--font-mono);">${this.escapeHtml(r.searchPattern)}</strong> →
                         <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span></div>
@@ -2624,7 +2633,7 @@ class MoneyTrackerApp {
             <h2 style="font-size:1.2rem; font-weight:700;">Import Bank CSV</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
-          <div style="border:2px dashed var(--border-hover); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
+          <div style="border:2px dashed var(--border-glow); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
             <p>Click to browse CSV files</p>
             <p style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem;">Format: Date, Description, Amount, Balance</p>
           </div>
@@ -3358,10 +3367,13 @@ class MoneyTrackerApp {
       const raw = localStorage.getItem(this.getProfileKey(name));
       if (!raw) { this.showToast(`Profile "${name}" not found`); return; }
       this.state = JSON.parse(raw);
-      if (!this.state.theme) this.state.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
-      Object.keys(DEFAULT_THEME).forEach(k => {
-        if (!this.state.theme[k]) this.state.theme[k] = DEFAULT_THEME[k];
-      });
+      if (!this.state.theme || this.state.theme.bg !== undefined || this.state.theme.surface !== undefined || this.state.theme.accentWarning !== undefined) {
+        this.state.theme = JSON.parse(JSON.stringify(DEFAULT_THEME));
+      } else {
+        Object.keys(DEFAULT_THEME).forEach(k => {
+          if (!this.state.theme[k]) this.state.theme[k] = DEFAULT_THEME[k];
+        });
+      }
       this.activeProfileName = name;
       localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
       this.applyTheme();
@@ -3491,14 +3503,12 @@ class MoneyTrackerApp {
     root.setProperty('--accent-secondary', t.accentSecondary);
     root.setProperty('--accent-positive', t.accentPositive);
     root.setProperty('--accent-negative', t.accentNegative);
-    root.setProperty('--accent-warning', t.accentWarning);
-    root.setProperty('--bg', t.bg);
-    root.setProperty('--surface', t.surface);
-    root.setProperty('--surface-2', t.surface2);
-    root.setProperty('--border', this._hexToRgba(t.accentPrimary, 0.08));
-    root.setProperty('--border-hover', this._hexToRgba(t.accentPrimary, 0.25));
-    root.setProperty('--border-glow', this._hexToRgba(t.accentPrimary, 0.4));
-    document.body.style.background = t.bg;
+    root.setProperty('--accent-pending', t.accentPending);
+    root.setProperty('--bg-base', t.bgBase);
+    root.setProperty('--bg-surface', t.bgSurface);
+    root.setProperty('--bg-elevated', t.bgElevated);
+    root.setProperty('--border-glow', this._hexToRgba(t.accentPrimary, 0.15));
+    document.body.style.background = t.bgBase;
   }
 
   setThemeColor(key, value) {
@@ -3559,7 +3569,7 @@ class MoneyTrackerApp {
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:780px; max-height:88vh; overflow-y:auto;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; position:sticky; top:0; background:var(--surface); padding-bottom:0.5rem; z-index:10;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem; position:sticky; top:0; background:var(--bg-surface); padding-bottom:0.5rem; z-index:10;">
             <h2 style="font-size:1.25rem; font-weight:700;">⚙ Settings</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
@@ -3573,7 +3583,7 @@ class MoneyTrackerApp {
                 <input type="file" id="profileImportInput" accept=".json" style="display:none">
               </div>
             </div>
-            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); overflow:hidden;">
+            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-md); overflow:hidden;">
               ${list.map(profileRow).join('')}
             </div>
             <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem; line-height:1.4;">
@@ -3587,15 +3597,15 @@ class MoneyTrackerApp {
               <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-secondary);">🎨 Theme</h3>
               <button class="btn btn-sm" onclick="app.resetTheme()">Reset to Default</button>
             </div>
-            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.5rem 1rem;">
+            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.5rem 1rem;">
               ${colorField('accentPrimary', 'Primary Accent', 'Buttons, links, active tabs, chart lines')}
               ${colorField('accentSecondary', 'Secondary Accent', 'Vaults, forecasts, APY chart')}
               ${colorField('accentPositive', 'Positive / Income', 'Incoming money, green values')}
               ${colorField('accentNegative', 'Negative / Expense', 'Outgoing money, red values')}
-              ${colorField('accentWarning', 'Warning / Pending', 'Pending badges, alerts')}
-              ${colorField('bg', 'Background', 'Main app background')}
-              ${colorField('surface', 'Surface', 'Cards and panels')}
-              ${colorField('surface2', 'Surface (Elevated)', 'Modals, dropdowns, elevated layers')}
+              ${colorField('accentPending', 'Pending / Warning', 'Pending badges, alerts')}
+              ${colorField('bgBase', 'Background', 'Main app background')}
+              ${colorField('bgSurface', 'Surface', 'Cards and panels')}
+              ${colorField('bgElevated', 'Surface (Elevated)', 'Modals, dropdowns, elevated layers')}
             </div>
             <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem;">
               Theme is saved to the active profile, so each profile can have its own look.
@@ -3603,8 +3613,8 @@ class MoneyTrackerApp {
           </div>
 
           <div style="margin-bottom:0.5rem;">
-            <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-warning); margin-bottom:0.75rem;">💾 Data</h3>
-            <div style="background:var(--bg); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.9rem 1rem;">
+            <h3 style="font-size:0.95rem; font-weight:700; color:var(--accent-pending); margin-bottom:0.75rem;">💾 Data</h3>
+            <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-md); padding:0.9rem 1rem;">
               <div style="display:flex; gap:0.5rem; flex-wrap:wrap; margin-bottom:0.85rem;">
                 <button class="btn btn-sm" onclick="app.exportProfileJSON(app.activeProfileName)">⬇ Export Current Profile</button>
                 <button class="btn btn-sm" onclick="app.openImportWizard()">📥 Import Bank CSV</button>
