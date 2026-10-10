@@ -3498,18 +3498,33 @@ class MoneyTrackerApp {
 
   /* ============ THEME ============ */
   applyTheme() {
-    const t = this.state.theme || DEFAULT_THEME;
-    const root = document.documentElement.style;
-    root.setProperty('--accent-primary', t.accentPrimary);
-    root.setProperty('--accent-secondary', t.accentSecondary);
-    root.setProperty('--accent-positive', t.accentPositive);
-    root.setProperty('--accent-negative', t.accentNegative);
-    root.setProperty('--accent-pending', t.accentPending);
-    root.setProperty('--bg-base', t.bgBase);
-    root.setProperty('--bg-surface', t.bgSurface);
-    root.setProperty('--bg-elevated', t.bgElevated);
-    root.setProperty('--border-glow', this._hexToRgba(t.accentPrimary, 0.15));
-    document.body.style.background = t.bgBase;
+  const t = this.state.theme || DEFAULT_THEME;
+  const root = document.documentElement.style;
+
+  // ===== Variables your CSS actually reads (matching your old :root) =====
+  root.setProperty('--bg-base', t.bg);
+  root.setProperty('--bg-surface', t.surface);
+  root.setProperty('--bg-elevated', t.surface2);
+  root.setProperty('--bg-hover', t.bgHover || '#222233');
+
+  root.setProperty('--accent-primary', t.accentPrimary);
+  root.setProperty('--accent-secondary', t.accentSecondary);
+  root.setProperty('--accent-positive', t.accentPositive);
+  root.setProperty('--accent-negative', t.accentNegative);
+  root.setProperty('--accent-pending', t.accentWarning);
+
+  root.setProperty('--border-glow', this._hexToRgba(t.accentPrimary, 0.15));
+  root.setProperty('--border-subtle', 'rgba(255, 255, 255, 0.07)');
+
+  // ===== Alias variables (in case any other code references them) =====
+  root.setProperty('--bg', t.bg);
+  root.setProperty('--surface', t.surface);
+  root.setProperty('--surface-2', t.surface2);
+  root.setProperty('--accent-warning', t.accentWarning);
+  root.setProperty('--border', this._hexToRgba(t.accentPrimary, 0.08));
+  root.setProperty('--border-hover', this._hexToRgba(t.accentPrimary, 0.25));
+
+  document.body.style.background = t.bg;
   }
 
   setThemeColor(key, value) {
