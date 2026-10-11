@@ -111,8 +111,9 @@ const DEFAULT_THEME = {
 
 class MoneyTrackerApp {
   constructor() {
-  this.activeProfile = this.getActiveProfileName() || 'Default';
-  this.state = this.loadState();
+  // Load everything up front so profile + state stay in sync
+  this.state = this.loadStateSafe();
+  this.activeProfile = this._bootstrapActive || 'Default';
   this.theme = this.loadTheme();
   this.currentTab = 'checking';
   this.chartRanges = { checking: 'week', networth: 'year', forecaster: 'year' };
@@ -204,16 +205,15 @@ switchProfile(name) {
   const profiles = this.loadProfiles();
   if (!profiles[name]) { this.showToast(`Profile "${name}" not found`); return; }
 
-  // Save current profile's live state first
-  this.forceSaveState();
+  // Save current active profile first
+  this._flushState();
 
-  // Switch
+  // Load the target
+  const target = profiles[name];
   this.activeProfile = name;
-  this.setActiveProfileName(name);
-  this.state = JSON.parse(JSON.stringify(profiles[name].state));
-  localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state));
+  this.state = target.state;
+  localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
 
-  // Re-init with new state
   this.recalculateBalances();
   this.applyNicknameRules();
   this.cleanSpotify();
@@ -226,18 +226,31 @@ switchProfile(name) {
 saveProfileAs(name) {
   name = (name || '').trim();
   if (!name) { this.showToast('Enter a profile name'); return; }
+  // Reject path-unsafe characters that would break the JSON filename
+  if (/[\\\/:*?"<>|]/.test(name)) {
+    this.showToast('Profile name contains invalid characters');
+    return;
+  }
+
   const profiles = this.loadProfiles();
   if (profiles[name] && name !== this.activeProfile) {
     if (!confirm(`Profile "${name}" already exists. Overwrite it with the current data?`)) return;
   }
-  // Save current state under the new name
-  profiles[name] = {
+
+  // Save current active profile data first
+  this._flushState();
+
+  // Reload (in case flush just wrote)
+  const fresh = this.loadProfiles();
+  fresh[name] = {
     state: JSON.parse(JSON.stringify(this.state)),
     savedAt: new Date().toISOString()
   };
-  this.saveProfiles(profiles);
+
+  if (!this.saveProfiles(fresh)) return;  // storage error already toasted
+
   this.activeProfile = name;
-  this.setActiveProfileName(name);
+  localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
   this.showToast(`Saved as "${name}"`);
   this.openSettingsModal('profiles');
 }
@@ -250,30 +263,35 @@ deleteProfile(name) {
   if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
   const profiles = this.loadProfiles();
   delete profiles[name];
-  this.saveProfiles(profiles);
-  this.showToast(`Deleted "${name}"`);
+  if (this.saveProfiles(profiles)) {
+    this.showToast(`Deleted "${name}"`);
+  }
   this.openSettingsModal('profiles');
 }
 
 exportProfile(name) {
   const profiles = this.loadProfiles();
   const p = profiles[name];
-  if (!p) { this.showToast('Profile not found'); return; }
+  if (!p) { this.showToast(`Profile "${name}" not found`); return; }
+
   const blob = new Blob([JSON.stringify(p.state, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = `${name}.json`;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
   this.showToast(`Exported "${name}"`);
 }
 
 exportCurrentProfile() {
+  // Make sure the in-memory state is the latest before exporting
+  this._flushState();
   this.exportProfile(this.activeProfile);
 }
 
-/* ---- Import a JSON as a new profile (or overwrite by name) ---- */
 triggerImportProfile() {
   const input = document.getElementById('jsonInput');
   input.value = '';
@@ -298,6 +316,11 @@ importProfile(evt) {
     }
     parsed.scenarios = parsed.scenarios || [];
     parsed.scenarios.forEach(s => { if (!s.type) s.type = 'custom'; });
+    parsed.vaults = parsed.vaults || [];
+    parsed.pendingItems = parsed.pendingItems || [];
+    parsed.transactions = parsed.transactions || [];
+    parsed.loans = parsed.loans || [];
+    parsed.nicknameRules = parsed.nicknameRules || [];
 
     const profiles = this.loadProfiles();
     let finalName = rawName;
@@ -315,7 +338,15 @@ importProfile(evt) {
       state: parsed,
       savedAt: new Date().toISOString()
     };
-    this.saveProfiles(profiles);
+    if (!this.saveProfiles(profiles)) return;
+
+    // If we just imported the profile we're already on, refresh in-memory
+    if (finalName === this.activeProfile) {
+      this.state = parsed;
+      this.recalculateBalances();
+      this.renderTabContent(this.currentTab);
+    }
+
     this.showToast(`Imported "${finalName}"`);
     this.openSettingsModal('profiles');
   };
@@ -325,10 +356,10 @@ importProfile(evt) {
 clearCurrentProfileData() {
   if (!confirm(`Clear ALL data in profile "${this.activeProfile}"? This cannot be undone.`)) return;
   if (!confirm('DOUBLE CONFIRMATION: This will permanently reset the current profile.')) return;
+
   this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
   this.selectedRows.clear();
-  localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state));
-  this.syncStateToActiveProfile();
+  this._flushState();
   this.init();
   this.closeModal();
   this.showToast('Current profile data cleared');
@@ -538,42 +569,118 @@ resetTheme() {
   this.showToast('Theme reset to defaults');
 }
   
-  /* ============ STORAGE ============ */
-  loadState() {
-    const saved = localStorage.getItem('MONEY_TRACKER_STATE_V3');
-    if (saved) {
-      try {
-        const p = JSON.parse(saved);
-        p.vaults = p.vaults || []; p.pendingItems = p.pendingItems || [];
-        p.transactions = p.transactions || [];
-        p.scenarios = p.scenarios || [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }];
-        p.scenarios.forEach(s => { if (!s.type) s.type = 'custom'; });
-        p.suggestedVaults = p.suggestedVaults || []; p.nicknameRules = p.nicknameRules || [];
-        p.loans = p.loans || [];
-        p.accounts = p.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
-        if (p.accounts.CHECKING) p.accounts.CHECKING.name = p.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
-        if (p.accounts.SAVINGS) p.accounts.SAVINGS.name = p.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
-        if (!p.taxStates || !Array.isArray(p.taxStates) || p.taxStates.length === 0) {
-          p.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-        }
-        if (!p.selectedState) p.selectedState = p.taxStates[0]?.code || 'OK';
-        return p;
-      } catch(e) { console.error("State load error:", e); }
-    }
-    return JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+  /* ============ STATE LOADING + MIGRATION ============ */
+loadStateSafe() {
+  // 1. Load profile registry
+  let profiles = {};
+  try { profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
+  catch(e) { profiles = {}; }
+
+  // 2. Determine active profile name
+  let activeName = localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE');
+  if (!activeName || !profiles[activeName]) {
+    // Active profile doesn't exist — pick the first available, or 'Default'
+    const keys = Object.keys(profiles);
+    activeName = keys.length ? keys[0] : 'Default';
   }
 
-  saveState() {
-  if (this.saveTimeout) clearTimeout(this.saveTimeout);
-  this.saveTimeout = setTimeout(() => {
+  // 3. Migrate legacy MONEY_TRACKER_STATE_V3 → active profile (once)
+  const legacy = localStorage.getItem('MONEY_TRACKER_STATE_V3');
+  if (legacy && !profiles[activeName]?.state) {
     try {
-      localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state));
-      this.syncStateToActiveProfile();
-    } catch(e) {
-      console.error("Save error:", e);
-      this.showToast("Storage full!");
+      const parsedLegacy = JSON.parse(legacy);
+      profiles[activeName] = {
+        state: parsedLegacy,
+        savedAt: new Date().toISOString()
+      };
+      localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+      localStorage.removeItem('MONEY_TRACKER_STATE_V3');
+    } catch(e) { console.error('Legacy migration failed:', e); }
+  }
+
+  // 4. Ensure the active profile has a valid state object
+  if (!profiles[activeName]) {
+    profiles[activeName] = {
+      state: JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE)),
+      savedAt: new Date().toISOString()
+    };
+  }
+  if (!profiles[activeName].state) {
+    profiles[activeName].state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+  }
+
+  // 5. Sanitize
+  const s = profiles[activeName].state;
+  s.vaults = s.vaults || [];
+  s.pendingItems = s.pendingItems || [];
+  s.transactions = s.transactions || [];
+  s.scenarios = s.scenarios || [];
+  s.scenarios.forEach(x => { if (!x.type) x.type = 'custom'; });
+  s.suggestedVaults = s.suggestedVaults || [];
+  s.nicknameRules = s.nicknameRules || [];
+  s.loans = s.loans || [];
+  s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
+  if (s.accounts.CHECKING) s.accounts.CHECKING.name = s.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
+  if (s.accounts.SAVINGS)  s.accounts.SAVINGS.name  = s.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+  if (!s.taxStates || !Array.isArray(s.taxStates) || !s.taxStates.length) {
+    s.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+  }
+  if (!s.selectedState) s.selectedState = s.taxStates[0]?.code || 'OK';
+
+  // 6. Persist cleaned-up profiles + active name
+  this._bootstrapProfiles = profiles;
+  this._bootstrapActive = activeName;
+  try {
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', activeName);
+  } catch(e) {
+    console.error('Boot save failed:', e);
+    setTimeout(() => alert('Storage is full. Your data may not save. Please export and remove unused profiles.'), 100);
+  }
+
+  return s;
+}
+
+  /* ============ STATE SAVING ============ */
+saveState() {
+  if (this.saveTimeout) clearTimeout(this.saveTimeout);
+  this.saveTimeout = setTimeout(() => this._flushState(), 1200);
+}
+
+_flushState() {
+  if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
+  try {
+    const profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {};
+    profiles[this.activeProfile] = {
+      state: this.state,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfile);
+  } catch(e) {
+    console.error('Save failed:', e);
+    if (String(e).includes('Quota') || String(e).includes('quota')) {
+      this.showToast('⚠ Storage full — export a backup and delete unused profiles');
+    } else {
+      this.showToast('Save failed: ' + e.message);
     }
-  }, 1500);
+  }
+}
+
+/* ============ PROFILE HELPERS ============ */
+loadProfiles() {
+  try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
+  catch(e) { return {}; }
+}
+saveProfiles(profiles) {
+  try {
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    return true;
+  } catch(e) {
+    console.error('saveProfiles failed:', e);
+    this.showToast('⚠ Storage full — could not save profile');
+    return false;
+  }
 }
 
   /* ============ INIT ============ */
@@ -583,7 +690,6 @@ resetTheme() {
   this.applyNicknameRules();
   this.cleanSpotify();
   this.recalculateLoanBalances();
-  this.syncStateToActiveProfile();   // ← new: register current state under active profile
   this.renderTabContent(this.currentTab);
   this.bindGlobalEvents();
 }
