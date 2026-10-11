@@ -255,9 +255,20 @@ exportProfile(name) {
 }
 
 exportCurrentProfile() {
-  // Make sure the in-memory state is the latest before exporting
+  // Flush to localStorage first, but don't rely on it for the export
   this._flushState();
-  this.exportProfile(this.activeProfile);
+
+  // Export directly from the in-memory state
+  const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${this.activeProfile}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+  this.showToast(`Exported "${this.activeProfile}"`);
 }
 
 triggerImportProfile() {
@@ -3783,11 +3794,15 @@ saveProfiles(profiles) {
     const start = document.getElementById('recStart').value;
     const interval = parseInt(document.getElementById('recInterval').value) || 1;
     const freq = document.getElementById('recFreq').value;
-    const count = parseInt(document.getElementById('recCount').value) || 12;
-    if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
-    const groupId = `rec_${Date.now()}`;
-    let curDate = new Date(start + 'T00:00:00');
-    for (let i = 0; i < count; i++) {
+    // Cap the total generated occurrences to 24 (or 36 for 3 years)
+// This prevents localStorage from blowing up
+const rawCount = parseInt(document.getElementById('recCount').value) || 12;
+const count = Math.min(rawCount, 24); 
+
+if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
+const groupId = `rec_${Date.now()}`;
+let curDate = new Date(start + 'T00:00:00');
+for (let i = 0; i < count; i++) {
       const dateStr = `${curDate.getFullYear()}-${String(curDate.getMonth() + 1).padStart(2, '0')}-${String(curDate.getDate()).padStart(2, '0')}`;
       this.state.transactions.push({
         id: `est_${Date.now()}_${i}`, groupId, account: acc, date: dateStr,
