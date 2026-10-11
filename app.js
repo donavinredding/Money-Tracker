@@ -220,7 +220,7 @@ saveProfileAs(name) {
   this.activeProfile = name;
   localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
   this.showToast(`Saved as "${name}"`);
-  this.openSettingsModal('profiles');
+  this.openSettingsModal('home'); // Changed from 'profiles'
 }
 
 deleteProfile(name) {
@@ -234,7 +234,7 @@ deleteProfile(name) {
   if (this.saveProfiles(profiles)) {
     this.showToast(`Deleted "${name}"`);
   }
-  this.openSettingsModal('profiles');
+  this.openSettingsModal('home'); // Changed from 'profiles'
 }
 
 exportProfile(name) {
@@ -327,7 +327,7 @@ importProfile(evt) {
     }
 
     this.showToast(`Imported "${finalName}"`);
-    this.openSettingsModal('profiles');
+    this.openSettingsModal('home'); // Changed from 'profiles'
   };
   reader.readAsText(file);
 }
@@ -345,163 +345,177 @@ clearCurrentProfileData() {
 }
 
 /* ---- Settings modal ---- */
-openSettingsModal(tab) {
-  if (tab) this._settingsTab = tab;
+openSettingsModal(screen = 'home') {
+  this._settingsScreen = screen;
   const profiles = this.loadProfiles();
-  const profileNames = Object.keys(profiles).sort((a, b) => a.localeCompare(b));
   const activeData = profiles[this.activeProfile];
   const savedAt = activeData ? new Date(activeData.savedAt).toLocaleString() : 'Never';
   const theme = { ...DEFAULT_THEME, ...this.theme };
 
-  const tabBtn = (id, label) => `
-    <button
-      onclick="app.openSettingsModal('${id}')"
-      style="background:transparent; border:none; padding:0.6rem 1rem; font-size:0.85rem; font-weight:600; cursor:pointer;
-             color:${this._settingsTab === id ? 'var(--accent-primary)' : 'var(--text-muted)'};
-             border-bottom:2px solid ${this._settingsTab === id ? 'var(--accent-primary)' : 'transparent'};
-             transition: all 0.15s;">${label}</button>
-  `;
-
   let body = '';
 
-  if (this._settingsTab === 'profiles') {
+  // --- HOME MENU ---
+  if (screen === 'home') {
     body = `
-      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACTIVE PROFILE</div>
-        <div style="font-weight:700; font-size:1.1rem;">${this.escapeHtml(this.activeProfile)}</div>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">Last saved: ${savedAt}</div>
+      <!-- Profile Hero -->
+      <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
+        <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
+        <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
       </div>
 
-      <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SWITCH PROFILE</div>
-      <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
-        ${profileNames.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No profiles yet.</div>' :
-          profileNames.map(n => {
-            const isActive = n === this.activeProfile;
-            const p = profiles[n];
-            const when = p.savedAt ? new Date(p.savedAt).toLocaleDateString() : '—';
-            return `
-              <div style="display:flex; align-items:center; gap:0.5rem; background:${isActive ? 'rgba(0,229,255,0.08)' : 'var(--bg-base)'};
-                          border:1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-subtle)'}; border-radius:var(--radius-sm); padding:0.6rem 0.75rem;">
-                <div style="flex:1; min-width:0;">
-                  <div style="font-weight:600; font-size:0.9rem;">
-                    ${this.escapeHtml(n)}${isActive ? ' <span style="font-size:0.65rem; color:var(--accent-primary); margin-left:6px;">ACTIVE</span>' : ''}
-                  </div>
-                  <div style="font-size:0.7rem; color:var(--text-dim);">Saved ${when}</div>
-                </div>
-                ${!isActive ? `<button class="btn btn-sm" onclick="app.switchProfile('${this.escapeHtml(n).replace(/'/g, "\\'")}')">Switch</button>` : ''}
-                <button class="btn btn-sm" onclick="app.exportProfile('${this.escapeHtml(n).replace(/'/g, "\\'")}')" title="Export">📥</button>
-                ${!isActive ? `<button class="btn btn-sm btn-danger" onclick="app.deleteProfile('${this.escapeHtml(n).replace(/'/g, "\\'")}')" title="Delete">🗑</button>` : ''}
-              </div>`;
-          }).join('')}
-      </div>
+      <!-- Vertical Menu -->
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        <button class="btn" onclick="app.openSettingsModal('storage')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">💾</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Storage</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">View database usage & limits</div>
+          </div>
+        </button>
 
-      <div style="border-top:1px solid var(--border-subtle); padding-top:1rem; display:flex; flex-direction:column; gap:0.75rem;">
-        <div class="stat-label" style="font-size:0.65rem;">MANAGE</div>
-        <div style="display:flex; gap:0.5rem;">
-          <input type="text" id="newProfileNameInput" placeholder="New profile name…" style="flex:1;">
-          <button class="btn btn-primary btn-sm" onclick="app.saveProfileAs(document.getElementById('newProfileNameInput').value)">Save As New</button>
-        </div>
-        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-          <button class="btn btn-sm" onclick="app.exportCurrentProfile()">📥 Export Active</button>
-          <button class="btn btn-sm" onclick="app.triggerImportProfile()">📤 Import JSON as Profile</button>
-        </div>
+        <button class="btn" onclick="app.openSettingsModal('backup')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">📦</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Backups</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Export, import, or clear profile</div>
+          </div>
+        </button>
+
+        <button class="btn" onclick="app.openSettingsModal('appearance')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">🎨</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Appearance</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Theme, colors, and dark mode</div>
+          </div>
+        </button>
       </div>
     `;
   }
 
-  if (this._settingsTab === 'backup') {
-    body = `
-      <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">BACKUP & RESTORE</div>
-        <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
-          Export the current profile as a JSON file, or import a JSON file as a new profile.
-          Imported files are saved as profiles and can be switched between at any time.
+  // --- SUB SCREENS ---
+  if (screen !== 'home') {
+    // Back button
+    const backBtn = `
+      <button onclick="app.openSettingsModal('home')" style="background:transparent; border:none; color:var(--accent-primary); font-weight:600; font-size:0.85rem; cursor:pointer; padding:0; margin-bottom:1rem; display:flex; align-items:center; gap:6px;">
+        ← Back to Profile
+      </button>
+    `;
+
+    if (screen === 'backup') {
+      body = backBtn + `
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">BACKUP & RESTORE</div>
+          <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
+            Export the current profile as a JSON file, or import a JSON file as a new profile.
+          </div>
         </div>
-      </div>
-
-      <div style="display:flex; flex-direction:column; gap:0.6rem;">
-        <button class="btn btn-primary" onclick="app.exportCurrentProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
-          📥 <div style="text-align:left;">
-            <div style="font-weight:600;">Export Current Profile</div>
-            <div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Download "${this.escapeHtml(this.activeProfile)}.json"</div>
-          </div>
-        </button>
-
-        <button class="btn" onclick="app.triggerImportProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
-          📤 <div style="text-align:left;">
-            <div style="font-weight:600;">Import JSON as New Profile</div>
-            <div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Filename becomes the profile name</div>
-          </div>
-        </button>
-
-        <div style="border-top:1px solid var(--border-subtle); margin-top:0.5rem; padding-top:0.75rem;">
-          <button class="btn btn-danger" onclick="app.clearCurrentProfileData()" style="justify-content:flex-start; padding:0.75rem 1rem; width:100%;">
-            🗑 <div style="text-align:left;">
-              <div style="font-weight:600;">Clear Current Profile Data</div>
-              <div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Wipes "${this.escapeHtml(this.activeProfile)}" — cannot be undone</div>
-            </div>
+        <div style="display:flex; flex-direction:column; gap:0.6rem;">
+          <button class="btn btn-primary" onclick="app.exportCurrentProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
+            📥 <div style="text-align:left;"><div style="font-weight:600;">Export Current Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Download "${this.escapeHtml(this.activeProfile)}.json"</div></div>
           </button>
+          <button class="btn" onclick="app.triggerImportProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
+            📤 <div style="text-align:left;"><div style="font-weight:600;">Import JSON as New Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Filename becomes the profile name</div></div>
+          </button>
+          <div style="border-top:1px solid var(--border-subtle); margin-top:0.5rem; padding-top:0.75rem;">
+            <button class="btn btn-danger" onclick="app.clearCurrentProfileData()" style="justify-content:flex-start; padding:0.75rem 1rem; width:100%;">
+              🗑 <div style="text-align:left;"><div style="font-weight:600;">Clear Current Profile Data</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Wipes "${this.escapeHtml(this.activeProfile)}" — cannot be undone</div></div>
+            </button>
+          </div>
+        </div>
+      `;
+    }
+
+    if (screen === 'appearance') {
+      const picker = (key, label, hint) => `
+        <div style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border-subtle);">
+          <input type="color" id="theme_${key}" value="${theme[key]}"
+                 oninput="app.previewThemeColor('${key}', this.value)"
+                 style="width:44px; height:32px; padding:0; border:1px solid var(--border-subtle); border-radius:6px; cursor:pointer; background:transparent;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600; font-size:0.85rem;">${label}</div>
+            <div style="font-size:0.7rem; color:var(--text-dim);">${hint}</div>
+          </div>
+          <span class="mono" style="font-size:0.75rem; color:var(--text-muted);">${theme[key]}</span>
+        </div>
+      `;
+
+      body = backBtn + `
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACCENTS</div>
+          ${picker('accentPrimary',   'Primary Accent',     'Buttons, active tabs, highlights')}
+          ${picker('accentSecondary', 'Secondary Accent',   'Vaults, charts, projections')}
+          ${picker('accentPositive',  'Positive / Income',  'Green values, gains')}
+          ${picker('accentNegative',  'Negative / Expense', 'Red values, losses')}
+          ${picker('accentPending',   'Pending',            'Amber badges')}
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SURFACES</div>
+          ${picker('bgBase',      'Background',        'App background')}
+          ${picker('bgSurface',   'Surface',           'Cards, panels')}
+          ${picker('bgElevated',  'Elevated Surface',  'Dropdowns, buttons')}
+          ${picker('bgHover',     'Hover',             'Row hover background')}
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">TEXT</div>
+          ${picker('textMain',  'Primary Text',   'Headings, body')}
+          ${picker('textMuted', 'Muted Text',     'Labels, secondary')}
+          ${picker('textDim',   'Dim Text',       'Tertiary')}
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; border-top:1px solid var(--border-subtle); padding-top:1rem;">
+          <button class="btn btn-sm" onclick="app.resetTheme()">↺ Reset to Defaults</button>
+        </div>
+      `;
+    }
+
+    // Placeholder for Phase 3
+    if (screen === 'storage') {
+  const usedBytes = this.calculateStorageBytes();
+  const limitBytes = this.getStorageLimitBytes();
+  const pct = Math.min(100, (usedBytes / limitBytes) * 100);
+  
+  const displayUsed = (usedBytes / 1024 / 1024).toFixed(2);
+  const displayLimit = (limitBytes / 1024 / 1024).toFixed(0);
+
+  // Color-code based on usage
+  let barColor = 'var(--accent-positive)'; // Green
+  if (pct > 90) barColor = 'var(--accent-negative)'; // Red
+  else if (pct > 70) barColor = 'var(--accent-pending)'; // Amber
+
+  body = backBtn + `
+    <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1.5rem 1rem; margin-bottom:1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0.5rem;">
+        <div>
+          <div class="stat-label" style="font-size:0.65rem;">DATABASE USAGE</div>
+          <div style="font-size:1.4rem; font-weight:700; color:var(--text-main); line-height:1;">
+            ${displayUsed} <span style="font-size:0.8rem; font-weight:400; color:var(--text-muted);">MB / ${displayLimit} MB</span>
+          </div>
+        </div>
+        <div style="font-size:0.8rem; font-weight:600; color:${barColor};">
+          ${pct.toFixed(1)}%
         </div>
       </div>
-    `;
-  }
-
-  if (this._settingsTab === 'appearance') {
-    const picker = (key, label, hint) => `
-      <div style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border-subtle);">
-        <input type="color" id="theme_${key}" value="${theme[key]}"
-               oninput="app.previewThemeColor('${key}', this.value)"
-               style="width:44px; height:32px; padding:0; border:1px solid var(--border-subtle); border-radius:6px; cursor:pointer; background:transparent;">
-        <div style="flex:1; min-width:0;">
-          <div style="font-weight:600; font-size:0.85rem;">${label}</div>
-          <div style="font-size:0.7rem; color:var(--text-dim);">${hint}</div>
-        </div>
-        <span class="mono" style="font-size:0.75rem; color:var(--text-muted);">${theme[key]}</span>
+      
+      <!-- The Bar Graph -->
+      <div style="height:12px; background:var(--bg-elevated); border-radius:6px; overflow:hidden; border:1px solid var(--border-subtle); margin-top:0.75rem;">
+        <div style="height:100%; width:${pct}%; background:${barColor}; box-shadow:0 0 10px ${barColor}; transition:width 0.5s ease;"></div>
       </div>
-    `;
+    </div>
 
-    body = `
-      <div style="margin-bottom:1rem;">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACCENTS</div>
-        ${picker('accentPrimary',   'Primary Accent',     'Buttons, active tabs, highlights')}
-        ${picker('accentSecondary', 'Secondary Accent',   'Vaults, charts, projections')}
-        ${picker('accentPositive',  'Positive / Income',  'Green values, gains')}
-        ${picker('accentNegative',  'Negative / Expense', 'Red values, losses')}
-        ${picker('accentPending',   'Pending',            'Amber badges')}
-      </div>
-
-      <div style="margin-bottom:1rem;">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SURFACES</div>
-        ${picker('bgBase',      'Background',        'App background')}
-        ${picker('bgSurface',   'Surface',           'Cards, panels')}
-        ${picker('bgElevated',  'Elevated Surface',  'Dropdowns, buttons')}
-        ${picker('bgHover',     'Hover',             'Row hover background')}
-      </div>
-
-      <div style="margin-bottom:1rem;">
-        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">TEXT</div>
-        ${picker('textMain',  'Primary Text',   'Headings, body')}
-        ${picker('textMuted', 'Muted Text',     'Labels, secondary')}
-        ${picker('textDim',   'Dim Text',       'Tertiary')}
-      </div>
-
-      <div style="display:flex; gap:0.5rem; justify-content:flex-end; border-top:1px solid var(--border-subtle); padding-top:1rem;">
-        <button class="btn btn-sm" onclick="app.resetTheme()">↺ Reset to Defaults</button>
-      </div>
-    `;
+    <div style="background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); padding:1rem; font-size:0.85rem; line-height:1.5; color:var(--text-muted);">
+      <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.25rem;">💡 Pro Tip: Switch Browsers for More Space</div>
+      Chrome and Safari typically cap local storage at <strong>5 MB</strong>. Firefox currently allows up to <strong>10 MB</strong>. If you are running low on space, try exporting your profiles and opening this app in Firefox to import them.
+    </div>
+  `;
+}
   }
 
   this.openModal(`
     <div class="modal-overlay active">
-      <div class="modal" style="max-width:640px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-          <h2 style="font-size:1.2rem; font-weight:700;">⚙ Settings</h2>
+      <div class="modal" style="max-width:560px; padding-bottom:2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+          <h2 style="font-size:1.4rem; font-weight:800; letter-spacing:-0.02em;">⚙ Settings</h2>
           <button class="btn btn-sm" data-action="closeModal">Close</button>
-        </div>
-        <div style="display:flex; gap:0; border-bottom:1px solid var(--border-subtle); margin-bottom:1.25rem;">
-          ${tabBtn('profiles',   'Profiles')}
-          ${tabBtn('backup',     'Backup')}
-          ${tabBtn('appearance', 'Appearance')}
         </div>
         ${body}
       </div>
@@ -546,6 +560,26 @@ resetTheme() {
   this.applyTheme(DEFAULT_THEME);
   this.openSettingsModal('appearance');
   this.showToast('Theme reset to defaults');
+}
+  
+  /* ---- Storage Helpers ---- */
+calculateStorageBytes() {
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const val = localStorage.getItem(key);
+    if (val) {
+      // Blob size is more accurate than string.length for UTF-8 data
+      total += new Blob([val]).size;
+    }
+  }
+  return total;
+}
+
+getStorageLimitBytes() {
+  // Detect Firefox to give a higher storage limit warning
+  const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
+  return isFirefox ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
 }
   
   /* ============ STATE LOADING + MIGRATION ============ */
