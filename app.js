@@ -135,39 +135,7 @@ class MoneyTrackerApp {
   /* ============================================================
    PROFILES, BACKUP, THEME
    ============================================================ */
-
-/* ---- Profile storage ---- */
-loadProfiles() {
-  try {
-    return JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {};
-  } catch(e) { return {}; }
-}
-saveProfiles(profiles) {
-  try { localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles)); }
-  catch(e) { this.showToast('Storage full! Could not save profile.'); }
-}
-getActiveProfileName() {
-  return localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE') || null;
-}
-setActiveProfileName(name) {
-  localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
-}
-syncStateToActiveProfile() {
-  const profiles = this.loadProfiles();
-  profiles[this.activeProfile] = {
-    state: JSON.parse(JSON.stringify(this.state)),
-    savedAt: new Date().toISOString()
-  };
-  this.saveProfiles(profiles);
-  this.setActiveProfileName(this.activeProfile);
-}
-forceSaveState() {
-  if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
-  try {
-    localStorage.setItem('MONEY_TRACKER_STATE_V3', JSON.stringify(this.state));
-    this.syncStateToActiveProfile();
-  } catch(e) { console.error("Force save error:", e); }
-}
+  
 
 /* ---- Theme storage ---- */
 loadTheme() {
@@ -3835,52 +3803,6 @@ saveProfiles(profiles) {
     this.closeModal();
     this.renderTabContent('calendar');
     this.showToast(`Added ${count} recurring items`);
-  }
-
-  exportJSON() {
-    const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `money_tracker_${new Date().toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  triggerImportJSON() {
-    const input = document.getElementById('jsonInput');
-    input.onchange = (e) => this.importJSON(e);
-    input.click();
-  }
-
-  importJSON(evt) {
-    const file = evt.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        this.state = JSON.parse(e.target.result);
-        if (!this.state.taxStates || !this.state.taxStates.length) {
-          this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-        }
-        (this.state.scenarios || []).forEach(s => { if (!s.type) s.type = 'custom'; });
-        this.saveState();
-        this.recalculateBalances();
-        this.init();
-        this.showToast('State restored');
-      } catch(err) { alert('Invalid JSON'); }
-    };
-    reader.readAsText(file);
-  }
-
-  clearAllData() {
-    if (!confirm('Are you sure you want to CLEAR ALL data?')) return;
-    if (!confirm('DOUBLE CONFIRMATION: This will permanently reset everything.')) return;
-    localStorage.removeItem('MONEY_TRACKER_STATE_V3');
-    this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
-    this.selectedRows.clear();
-    this.init();
-    this.showToast('All data cleared');
   }
 
   /* ============ UTILS ============ */
