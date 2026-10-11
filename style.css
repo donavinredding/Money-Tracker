@@ -190,3 +190,23 @@ tr:hover td { background: var(--bg-hover); }
 .forecaster-header-flex .btn { width: 100%; }
 .forecast-split-grid { grid-template-columns: 1fr; }
         }
+
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  overflow: hidden;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 5px;
+}
