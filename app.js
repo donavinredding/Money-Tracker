@@ -324,10 +324,13 @@ importProfile(evt) {
       this.state = parsed;
       this.recalculateBalances();
       this.renderTabContent(this.currentTab);
+      this.closeModal();
+      this.showToast(`Imported "${finalName}" (Refreshed)`);
+    } else {
+      // Otherwise, switch to the newly imported profile
+      this.switchProfile(finalName);
+      this.showToast(`Imported "${finalName}"`);
     }
-
-    this.showToast(`Imported "${finalName}"`);
-    this.openSettingsModal('home'); // Changed from 'profiles'
   };
   reader.readAsText(file);
 }
