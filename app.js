@@ -504,7 +504,7 @@ openSettingsModal(screen = 'home') {
         </div>
       `;
     }
-  }
+  } // <-- FIX: Removed extra brace here
 
   this.openModal(`
     <div class="modal-overlay active">
