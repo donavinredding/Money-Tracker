@@ -1,7 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 6
+   MONEY TRACKER APP - STEP 5
    Redesigned Debt Payoff Page + Scenario Types
-   + Data integrity / migration fixes
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -94,12 +93,6 @@ const INITIAL_EMPTY_STATE = {
   selectedState: 'OK'
 };
 
-/* FIX: canonical list of recognized scenario types (used by migration + sanitizer) */
-const KNOWN_SCENARIO_TYPES = ['custom', 'recurring', 'paycheck', 'bill', 'loan'];
-
-/* FIX: how many months of estimated (recurring) items to keep when pruning */
-const ESTIMATED_PRUNE_MONTHS = 24;
-
 /* ============ DEFAULT THEME ============ */
 const DEFAULT_THEME = {
   accentPrimary:   '#00e5ff',
@@ -118,648 +111,657 @@ const DEFAULT_THEME = {
 
 class MoneyTrackerApp {
   constructor() {
-    // Load everything up front so profile + state stay in sync
-    this.state = this.loadStateSafe();
-    this.activeProfile = this._bootstrapActive || 'Default';
-    this.theme = this.loadTheme();
-    this.currentTab = 'checking';
-    this.chartRanges = { checking: 'week', networth: 'year', forecaster: 'year' };
-    this.selectedRows = new Set();
-    this.calendarMonth = new Date();
-    this.currentDrawerDate = null;
-    this.resizeTimeout = null;
-    this.saveTimeout = null;
-    this.searchTimeout = null;
-    this.sortState = { col: 'date', asc: false };
-    this.compactDensity = false;
-    this.searchQuery = '';
-    this.stagedFiles = [];
-    this.editingStateCode = null;
-    this._piManual = false;
-    this._settingsTab = 'profiles';
-    /* FIX: prevent double-binding of global event listeners */
-    this._eventsBound = false;
-    /* FIX: monotonic counter for collision-free import IDs */
-    this._importSeq = 0;
-  }
+  // Load everything up front so profile + state stay in sync
+  this.state = this.loadStateSafe();
+  this.activeProfile = this._bootstrapActive || 'Default';
+  this.theme = this.loadTheme();
+  this.currentTab = 'checking';
+  this.chartRanges = { checking: 'week', networth: 'year', forecaster: 'year' };
+  this.selectedRows = new Set();
+  this.calendarMonth = new Date();
+  this.currentDrawerDate = null;
+  this.resizeTimeout = null;
+  this.saveTimeout = null;
+  this.searchTimeout = null;
+  this.sortState = { col: 'date', asc: false };
+  this.compactDensity = false;
+  this.searchQuery = '';
+  this.stagedFiles = [];
+  this.editingStateCode = null;
+  this._piManual = false;
+  this._settingsTab = 'profiles';
+}
 
   /* ============================================================
    PROFILES, BACKUP, THEME
    ============================================================ */
+  
 
-  /* ---- Theme storage ---- */
-  loadTheme() {
-    try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_THEME')) || {}; }
-    catch(e) { return {}; }
-  }
-  saveTheme(theme) {
-    this.theme = theme;
-    localStorage.setItem('MONEY_TRACKER_THEME', JSON.stringify(theme));
-  }
-  applyTheme(theme) {
-    const root = document.documentElement;
-    const map = {
-      accentPrimary:   '--accent-primary',
-      accentSecondary: '--accent-secondary',
-      accentPositive:  '--accent-positive',
-      accentNegative:  '--accent-negative',
-      accentPending:   '--accent-pending',
-      bgBase:          '--bg-base',
-      bgSurface:       '--bg-surface',
-      bgElevated:      '--bg-elevated',
-      bgHover:         '--bg-hover',
-      textMain:        '--text-main',
-      textMuted:       '--text-muted',
-      textDim:         '--text-dim'
-    };
-    Object.keys(map).forEach(k => {
-      if (theme[k]) root.style.setProperty(map[k], theme[k]);
-    });
+/* ---- Theme storage ---- */
+loadTheme() {
+  try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_THEME')) || {}; }
+  catch(e) { return {}; }
+}
+saveTheme(theme) {
+  this.theme = theme;
+  localStorage.setItem('MONEY_TRACKER_THEME', JSON.stringify(theme));
+}
+applyTheme(theme) {
+  const root = document.documentElement;
+  const map = {
+    accentPrimary:   '--accent-primary',
+    accentSecondary: '--accent-secondary',
+    accentPositive:  '--accent-positive',
+    accentNegative:  '--accent-negative',
+    accentPending:   '--accent-pending',
+    bgBase:          '--bg-base',
+    bgSurface:       '--bg-surface',
+    bgElevated:      '--bg-elevated',
+    bgHover:         '--bg-hover',
+    textMain:        '--text-main',
+    textMuted:       '--text-muted',
+    textDim:         '--text-dim'
+  };
+  Object.keys(map).forEach(k => {
+    if (theme[k]) root.style.setProperty(map[k], theme[k]);
+  });
+}
+
+/* ---- Profile switch / create / delete ---- */
+switchProfile(name) {
+  if (!name || name === this.activeProfile) return;
+  const profiles = this.loadProfiles();
+  if (!profiles[name]) { this.showToast(`Profile "${name}" not found`); return; }
+
+  // Save current active profile first
+  this._flushState();
+
+  // Load the target
+  const target = profiles[name];
+  this.activeProfile = name;
+  this.state = target.state;
+  localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
+
+  this.recalculateBalances();
+  this.applyNicknameRules();
+  this.cleanSpotify();
+  this.recalculateLoanBalances();
+  this.renderTabContent(this.currentTab);
+  this.closeModal();
+  this.showToast(`Switched to "${name}"`);
+}
+
+saveProfileAs(name) {
+  name = (name || '').trim();
+  if (!name) { this.showToast('Enter a profile name'); return; }
+  // Reject path-unsafe characters that would break the JSON filename
+  if (/[\\\/:*?"<>|]/.test(name)) {
+    this.showToast('Profile name contains invalid characters');
+    return;
   }
 
-  /* ---- Profile switch / create / delete ---- */
-  switchProfile(name) {
-    if (!name || name === this.activeProfile) return;
+  const profiles = this.loadProfiles();
+  if (profiles[name] && name !== this.activeProfile) {
+    if (!confirm(`Profile "${name}" already exists. Overwrite it with the current data?`)) return;
+  }
+
+  // Save current active profile data first
+  this._flushState();
+
+  // Reload (in case flush just wrote)
+  const fresh = this.loadProfiles();
+  fresh[name] = {
+    state: JSON.parse(JSON.stringify(this.state)),
+    savedAt: new Date().toISOString()
+  };
+
+  if (!this.saveProfiles(fresh)) return;  // storage error already toasted
+
+  this.activeProfile = name;
+  localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
+  this.showToast(`Saved as "${name}"`);
+  this.openSettingsModal('home'); // Changed from 'profiles'
+}
+
+deleteProfile(name) {
+  if (name === this.activeProfile) {
+    this.showToast('Cannot delete the active profile. Switch to another first.');
+    return;
+  }
+  if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
+  const profiles = this.loadProfiles();
+  delete profiles[name];
+  if (this.saveProfiles(profiles)) {
+    this.showToast(`Deleted "${name}"`);
+  }
+  this.openSettingsModal('home'); // Changed from 'profiles'
+}
+
+exportProfile(name) {
+  const profiles = this.loadProfiles();
+  const p = profiles[name];
+  if (!p) { this.showToast(`Profile "${name}" not found`); return; }
+
+  const blob = new Blob([JSON.stringify(p.state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+  this.showToast(`Exported "${name}"`);
+}
+
+exportCurrentProfile() {
+  // Flush to localStorage first, but don't rely on it for the export
+  this._flushState();
+
+  // Export directly from the in-memory state
+  const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${this.activeProfile}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 500);
+  this.showToast(`Exported "${this.activeProfile}"`);
+}
+
+triggerImportProfile() {
+  const input = document.getElementById('jsonInput');
+  input.value = '';
+  input.onchange = (e) => this.importProfile(e);
+  input.click();
+}
+
+importProfile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const rawName = file.name.replace(/\.json$/i, '').trim() || 'Imported';
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    let parsed;
+    try { parsed = JSON.parse(e.target.result); }
+    catch(err) { alert('Invalid JSON file'); return; }
+
+    // Sanitize
+    if (!parsed.taxStates || !parsed.taxStates.length) {
+      parsed.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+    }
+    parsed.scenarios = parsed.scenarios || [];
+    parsed.scenarios.forEach(s => { if (!s.type) s.type = 'custom'; });
+    parsed.vaults = parsed.vaults || [];
+    parsed.pendingItems = parsed.pendingItems || [];
+    parsed.transactions = parsed.transactions || [];
+    parsed.loans = parsed.loans || [];
+    parsed.nicknameRules = parsed.nicknameRules || [];
+
     const profiles = this.loadProfiles();
-    if (!profiles[name]) { this.showToast(`Profile "${name}" not found`); return; }
-
-    // Save current active profile first
-    this._flushState();
-
-    // Load the target
-    const target = profiles[name];
-    this.activeProfile = name;
-    this.state = this._sanitizeState(target.state || {});
-    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
-
-    this.recalculateBalances();
-    this.applyNicknameRules();
-    this.cleanSpotify();
-    this.recalculateLoanBalances();
-    this.renderTabContent(this.currentTab);
-    this.closeModal();
-    this.showToast(`Switched to "${name}"`);
-  }
-
-  saveProfileAs(name) {
-    name = (name || '').trim();
-    if (!name) { this.showToast('Enter a profile name'); return; }
-    if (/[\\\/:*?"<>|]/.test(name)) {
-      this.showToast('Profile name contains invalid characters');
-      return;
+    let finalName = rawName;
+    if (profiles[finalName]) {
+      const overwrite = confirm(`A profile named "${finalName}" already exists.\n\nOK = Overwrite it\nCancel = Save as a copy with a new name`);
+      if (!overwrite) {
+        finalName = prompt('Enter a new profile name:', `${finalName} (copy)`);
+        if (!finalName) return;
+        finalName = finalName.trim();
+        if (!finalName) return;
+      }
     }
 
-    const profiles = this.loadProfiles();
-    if (profiles[name] && name !== this.activeProfile) {
-      if (!confirm(`Profile "${name}" already exists. Overwrite it with the current data?`)) return;
-    }
-
-    this._flushState();
-
-    const fresh = this.loadProfiles();
-    fresh[name] = {
-      state: JSON.parse(JSON.stringify(this.state)),
+    profiles[finalName] = {
+      state: parsed,
       savedAt: new Date().toISOString()
     };
+    if (!this.saveProfiles(profiles)) return;
 
-    if (!this.saveProfiles(fresh)) return;
-
-    this.activeProfile = name;
-    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
-    this.showToast(`Saved as "${name}"`);
-    this.openSettingsModal('home');
-  }
-
-  deleteProfile(name) {
-    if (name === this.activeProfile) {
-      this.showToast('Cannot delete the active profile. Switch to another first.');
-      return;
+    // If we just imported the profile we're already on, refresh in-memory
+    if (finalName === this.activeProfile) {
+      this.state = parsed;
+      this.recalculateBalances();
+      this.renderTabContent(this.currentTab);
+      this.closeModal();
+      this.showToast(`Imported "${finalName}" (Refreshed)`);
+    } else {
+      // Otherwise, switch to the newly imported profile
+      this.switchProfile(finalName);
+      this.showToast(`Imported "${finalName}"`);
     }
-    if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
-    const profiles = this.loadProfiles();
-    delete profiles[name];
-    if (this.saveProfiles(profiles)) {
-      this.showToast(`Deleted "${name}"`);
-    }
-    this.openSettingsModal('home');
-  }
+  };
+  reader.readAsText(file);
+}
 
-  exportProfile(name) {
-    const profiles = this.loadProfiles();
-    const p = profiles[name];
-    if (!p) { this.showToast(`Profile "${name}" not found`); return; }
+clearCurrentProfileData() {
+  if (!confirm(`Clear ALL data in profile "${this.activeProfile}"? This cannot be undone.`)) return;
+  if (!confirm('DOUBLE CONFIRMATION: This will permanently reset the current profile.')) return;
 
-    const blob = new Blob([JSON.stringify(p.state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${name}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 500);
-    this.showToast(`Exported "${name}"`);
-  }
+  this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+  this.selectedRows.clear();
+  this._flushState();
+  this.init();
+  this.closeModal();
+  this.showToast('Current profile data cleared');
+}
 
-  exportCurrentProfile() {
-    this._flushState();
-    const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${this.activeProfile}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 500);
-    this.showToast(`Exported "${this.activeProfile}"`);
-  }
+/* ---- Settings modal ---- */
+openSettingsModal(screen = 'home') {
+  // If called via data-action, the first arg is the button element. Reset it to 'home'.
+  if (screen instanceof HTMLElement) screen = 'home';
 
-  triggerImportProfile() {
-    const input = document.getElementById('jsonInput');
-    input.value = '';
-    input.onchange = (e) => this.importProfile(e);
-    input.click();
-  }
+  this._settingsScreen = screen;
+  const profiles = this.loadProfiles();
+  const activeData = profiles[this.activeProfile];
+  const savedAt = activeData ? new Date(activeData.savedAt).toLocaleString() : 'Never';
+  const theme = { ...DEFAULT_THEME, ...this.theme };
 
-  importProfile(evt) {
-    const file = evt.target.files[0];
-    if (!file) return;
-    const rawName = file.name.replace(/\.json$/i, '').trim() || 'Imported';
+  let body = '';
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      let parsed;
-      try { parsed = JSON.parse(e.target.result); }
-      catch(err) { alert('Invalid JSON file'); return; }
-
-      /* FIX: full sanitizer runs the same migrations as loadStateSafe */
-      parsed = this._sanitizeState(parsed);
-
-      const profiles = this.loadProfiles();
-      let finalName = rawName;
-      if (profiles[finalName]) {
-        const overwrite = confirm(`A profile named "${finalName}" already exists.\n\nOK = Overwrite it\nCancel = Save as a copy with a new name`);
-        if (!overwrite) {
-          finalName = prompt('Enter a new profile name:', `${finalName} (copy)`);
-          if (!finalName) return;
-          finalName = finalName.trim();
-          if (!finalName) return;
-        }
-      }
-
-      profiles[finalName] = {
-        state: parsed,
-        savedAt: new Date().toISOString()
-      };
-      if (!this.saveProfiles(profiles)) return;
-
-      if (finalName === this.activeProfile) {
-        this.state = parsed;
-        this.recalculateBalances();
-        this.renderTabContent(this.currentTab);
-        this.closeModal();
-        this.showToast(`Imported "${finalName}" (Refreshed)`);
-      } else {
-        this.switchProfile(finalName);
-        this.showToast(`Imported "${finalName}"`);
-      }
-    };
-    reader.readAsText(file);
-  }
-
-  clearCurrentProfileData() {
-    if (!confirm(`Clear ALL data in profile "${this.activeProfile}"? This cannot be undone.`)) return;
-    if (!confirm('DOUBLE CONFIRMATION: This will permanently reset the current profile.')) return;
-
-    this.state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
-    this.selectedRows.clear();
-    this._flushState();
-    this.init();
-    this.closeModal();
-    this.showToast('Current profile data cleared');
-  }
-
-  /* ---- Settings modal ---- */
-  openSettingsModal(screen = 'home') {
-    if (screen instanceof HTMLElement) screen = 'home';
-
-    this._settingsScreen = screen;
-    const profiles = this.loadProfiles();
-    const activeData = profiles[this.activeProfile];
-    const savedAt = activeData ? new Date(activeData.savedAt).toLocaleString() : 'Never';
-    const theme = { ...DEFAULT_THEME, ...this.theme };
-
-    let body = '';
-
-    // --- HOME MENU ---
-    if (screen === 'home') {
-      body = `
-        <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
-          <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
-          <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
-          <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
-        </div>
-
-        <div style="display:flex; flex-direction:column; gap:0.75rem;">
-          <button class="btn" onclick="app.openSettingsModal('storage')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
-            <div style="font-size:1.2rem; margin-right:12px;">💾</div>
-            <div>
-              <div style="font-weight:700; font-size:0.95rem;">Storage</div>
-              <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">View database usage & limits</div>
-            </div>
-          </button>
-
-          <button class="btn" onclick="app.openSettingsModal('backup')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
-            <div style="font-size:1.2rem; margin-right:12px;">📦</div>
-            <div>
-              <div style="font-weight:700; font-size:0.95rem;">Backups</div>
-              <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Export, import, or clear profile</div>
-            </div>
-          </button>
-
-          <button class="btn" onclick="app.openSettingsModal('appearance')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
-            <div style="font-size:1.2rem; margin-right:12px;">🎨</div>
-            <div>
-              <div style="font-weight:700; font-size:0.95rem;">Appearance</div>
-              <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Theme, colors, and dark mode</div>
-            </div>
-          </button>
-        </div>
-      `;
-    }
-
-    // --- SUB SCREENS ---
-    if (screen !== 'home') {
-      const backBtn = `
-        <button onclick="app.openSettingsModal('home')" style="background:transparent; border:none; color:var(--accent-primary); font-weight:600; font-size:0.85rem; cursor:pointer; padding:0; margin-bottom:1rem; display:flex; align-items:center; gap:6px;">
-          ← Back to Profile
-        </button>
-      `;
-
-      if (screen === 'backup') {
-        body = backBtn + `
-          <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
-            <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">BACKUP & RESTORE</div>
-            <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
-              Export the current profile as a JSON file, or import a JSON file as a new profile.
-            </div>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:0.6rem;">
-            <button class="btn btn-primary" onclick="app.exportCurrentProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
-              📥 <div style="text-align:left;"><div style="font-weight:600;">Export Current Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Download "${this.escapeHtml(this.activeProfile)}.json"</div></div>
-            </button>
-            <button class="btn" onclick="app.triggerImportProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
-              📤 <div style="text-align:left;"><div style="font-weight:600;">Import JSON as New Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Filename becomes the profile name</div></div>
-            </button>
-            <div style="border-top:1px solid var(--border-subtle); margin-top:0.5rem; padding-top:0.75rem;">
-              <button class="btn btn-danger" onclick="app.clearCurrentProfileData()" style="justify-content:flex-start; padding:0.75rem 1rem; width:100%;">
-                🗑 <div style="text-align:left;"><div style="font-weight:600;">Clear Current Profile Data</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Wipes "${this.escapeHtml(this.activeProfile)}" — cannot be undone</div></div>
-              </button>
-            </div>
-          </div>
-        `;
-      }
-
-      if (screen === 'appearance') {
-        const picker = (key, label, hint) => `
-          <div style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border-subtle);">
-            <input type="color" id="theme_${key}" value="${theme[key]}"
-                   oninput="app.previewThemeColor('${key}', this.value)"
-                   style="width:44px; height:32px; padding:0; border:1px solid var(--border-subtle); border-radius:6px; cursor:pointer; background:transparent;">
-            <div style="flex:1; min-width:0;">
-              <div style="font-weight:600; font-size:0.85rem;">${label}</div>
-              <div style="font-size:0.7rem; color:var(--text-dim);">${hint}</div>
-            </div>
-            <span class="mono" style="font-size:0.75rem; color:var(--text-muted);">${theme[key]}</span>
-          </div>
-        `;
-
-        body = backBtn + `
-          <div style="margin-bottom:1rem;">
-            <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACCENTS</div>
-            ${picker('accentPrimary',   'Primary Accent',     'Buttons, active tabs, highlights')}
-            ${picker('accentSecondary', 'Secondary Accent',   'Vaults, charts, projections')}
-            ${picker('accentPositive',  'Positive / Income',  'Green values, gains')}
-            ${picker('accentNegative',  'Negative / Expense', 'Red values, losses')}
-            ${picker('accentPending',   'Pending',            'Amber badges')}
-          </div>
-          <div style="margin-bottom:1rem;">
-            <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SURFACES</div>
-            ${picker('bgBase',      'Background',        'App background')}
-            ${picker('bgSurface',   'Surface',           'Cards, panels')}
-            ${picker('bgElevated',  'Elevated Surface',  'Dropdowns, buttons')}
-            ${picker('bgHover',     'Hover',             'Row hover background')}
-          </div>
-          <div style="margin-bottom:1rem;">
-            <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">TEXT</div>
-            ${picker('textMain',  'Primary Text',   'Headings, body')}
-            ${picker('textMuted', 'Muted Text',     'Labels, secondary')}
-            ${picker('textDim',   'Dim Text',       'Tertiary')}
-          </div>
-          <div style="display:flex; gap:0.5rem; justify-content:flex-end; border-top:1px solid var(--border-subtle); padding-top:1rem;">
-            <button class="btn btn-sm" onclick="app.resetTheme()">↺ Reset to Defaults</button>
-          </div>
-        `;
-      }
-
-      if (screen === 'storage') {
-        const usedBytes = this.calculateStorageBytes();
-        const limitBytes = this.getStorageLimitBytes();
-        const pct = Math.min(100, (usedBytes / limitBytes) * 100);
-        const displayUsed = (usedBytes / 1024 / 1024).toFixed(2);
-        const displayLimit = (limitBytes / 1024 / 1024).toFixed(0);
-
-        let barColor = 'var(--accent-positive)';
-        if (pct > 90) barColor = 'var(--accent-negative)';
-        else if (pct > 70) barColor = 'var(--accent-pending)';
-
-        body = backBtn + `
-          <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1.5rem 1rem; margin-bottom:1rem;">
-            <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0.5rem;">
-              <div>
-                <div class="stat-label" style="font-size:0.65rem;">DATABASE USAGE</div>
-                <div style="font-size:1.4rem; font-weight:700; color:var(--text-main); line-height:1;">
-                  ${displayUsed} <span style="font-size:0.8rem; font-weight:400; color:var(--text-muted);">MB / ${displayLimit} MB</span>
-                </div>
-              </div>
-              <div style="font-size:0.8rem; font-weight:600; color:${barColor};">
-                ${pct.toFixed(1)}%
-              </div>
-            </div>
-            <div style="height:12px; background:var(--bg-elevated); border-radius:6px; overflow:hidden; border:1px solid var(--border-subtle); margin-top:0.75rem;">
-              <div style="height:100%; width:${pct}%; background:${barColor}; box-shadow:0 0 10px ${barColor}; transition:width 0.5s ease;"></div>
-            </div>
-          </div>
-          <div style="background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); padding:1rem; font-size:0.85rem; line-height:1.5; color:var(--text-muted);">
-            <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.25rem;">💡 Pro Tip: Switch Browsers for More Space</div>
-            Chrome and Safari typically cap local storage at <strong>5 MB</strong>. Firefox currently allows up to <strong>10 MB</strong>. If you are running low on space, try exporting your profiles and opening this app in Firefox to import them.
-          </div>
-        `;
-      }
-
-      /* FIX: blank-screen fallback if an unknown screen name is ever passed */
-      if (!body) {
-        body = backBtn + `<div style="color:var(--text-muted); font-size:0.85rem;">Unknown settings screen.</div>`;
-      }
-    }
-
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal" style="max-width:560px; padding-bottom:2rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
-            <h2 style="font-size:1.4rem; font-weight:800; letter-spacing:-0.02em;">⚙ Settings</h2>
-            <button class="btn btn-sm" data-action="closeModal">Close</button>
-          </div>
-          ${body}
-        </div>
+  // --- HOME MENU ---
+  if (screen === 'home') {
+    body = `
+      <!-- Profile Hero -->
+      <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
+        <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
+        <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
       </div>
-    `);
+
+      <!-- Vertical Menu -->
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        <button class="btn" onclick="app.openSettingsModal('storage')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">💾</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Storage</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">View database usage & limits</div>
+          </div>
+        </button>
+
+        <button class="btn" onclick="app.openSettingsModal('backup')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">📦</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Backups</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Export, import, or clear profile</div>
+          </div>
+        </button>
+
+        <button class="btn" onclick="app.openSettingsModal('appearance')" style="justify-content:flex-start; padding:1rem; text-align:left; height:auto;">
+          <div style="font-size:1.2rem; margin-right:12px;">🎨</div>
+          <div>
+            <div style="font-weight:700; font-size:0.95rem;">Appearance</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); font-weight:400;">Theme, colors, and dark mode</div>
+          </div>
+        </button>
+      </div>
+    `;
   }
 
-  /* ---- Theme preview / save ---- */
-  previewThemeColor(key, value) {
-    const map = {
-      accentPrimary:   '--accent-primary',
-      accentSecondary: '--accent-secondary',
-      accentPositive:  '--accent-positive',
-      accentNegative:  '--accent-negative',
-      accentPending:   '--accent-pending',
-      bgBase:          '--bg-base',
-      bgSurface:       '--bg-surface',
-      bgElevated:      '--bg-elevated',
-      bgHover:         '--bg-hover',
-      textMain:        '--text-main',
-      textMuted:       '--text-muted',
-      textDim:         '--text-dim'
-    };
-    if (map[key]) document.documentElement.style.setProperty(map[key], value);
+  // --- SUB SCREENS ---
+  if (screen !== 'home') {
+    const backBtn = `
+      <button onclick="app.openSettingsModal('home')" style="background:transparent; border:none; color:var(--accent-primary); font-weight:600; font-size:0.85rem; cursor:pointer; padding:0; margin-bottom:1rem; display:flex; align-items:center; gap:6px;">
+        ← Back to Profile
+      </button>
+    `;
 
-    if (this._themeSaveT) clearTimeout(this._themeSaveT);
-    this._themeSaveT = setTimeout(() => {
-      const theme = { ...DEFAULT_THEME, ...this.theme };
-      Object.keys(DEFAULT_THEME).forEach(k => {
-        const el = document.getElementById('theme_' + k);
-        if (el) theme[k] = el.value;
-      });
-      this.saveTheme(theme);
-    }, 200);
-  }
+    if (screen === 'backup') {
+      body = backBtn + `
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">BACKUP & RESTORE</div>
+          <div style="font-size:0.85rem; color:var(--text-muted); line-height:1.5;">
+            Export the current profile as a JSON file, or import a JSON file as a new profile.
+          </div>
+        </div>
+        <div style="display:flex; flex-direction:column; gap:0.6rem;">
+          <button class="btn btn-primary" onclick="app.exportCurrentProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
+            📥 <div style="text-align:left;"><div style="font-weight:600;">Export Current Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Download "${this.escapeHtml(this.activeProfile)}.json"</div></div>
+          </button>
+          <button class="btn" onclick="app.triggerImportProfile()" style="justify-content:flex-start; padding:0.75rem 1rem;">
+            📤 <div style="text-align:left;"><div style="font-weight:600;">Import JSON as New Profile</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Filename becomes the profile name</div></div>
+          </button>
+          <div style="border-top:1px solid var(--border-subtle); margin-top:0.5rem; padding-top:0.75rem;">
+            <button class="btn btn-danger" onclick="app.clearCurrentProfileData()" style="justify-content:flex-start; padding:0.75rem 1rem; width:100%;">
+              🗑 <div style="text-align:left;"><div style="font-weight:600;">Clear Current Profile Data</div><div style="font-size:0.7rem; color:var(--text-dim); font-weight:400;">Wipes "${this.escapeHtml(this.activeProfile)}" — cannot be undone</div></div>
+            </button>
+          </div>
+        </div>
+      `;
+    }
 
-  resetTheme() {
-    if (!confirm('Reset all theme colors to the defaults?')) return;
-    this.saveTheme({});
-    this.applyTheme(DEFAULT_THEME);
-    this.openSettingsModal('appearance');
-    this.showToast('Theme reset to defaults');
-  }
+    if (screen === 'appearance') {
+      const picker = (key, label, hint) => `
+        <div style="display:flex; align-items:center; gap:0.75rem; padding:0.5rem 0; border-bottom:1px solid var(--border-subtle);">
+          <input type="color" id="theme_${key}" value="${theme[key]}"
+                 oninput="app.previewThemeColor('${key}', this.value)"
+                 style="width:44px; height:32px; padding:0; border:1px solid var(--border-subtle); border-radius:6px; cursor:pointer; background:transparent;">
+          <div style="flex:1; min-width:0;">
+            <div style="font-weight:600; font-size:0.85rem;">${label}</div>
+            <div style="font-size:0.7rem; color:var(--text-dim);">${hint}</div>
+          </div>
+          <span class="mono" style="font-size:0.75rem; color:var(--text-muted);">${theme[key]}</span>
+        </div>
+      `;
 
+      body = backBtn + `
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACCENTS</div>
+          ${picker('accentPrimary',   'Primary Accent',     'Buttons, active tabs, highlights')}
+          ${picker('accentSecondary', 'Secondary Accent',   'Vaults, charts, projections')}
+          ${picker('accentPositive',  'Positive / Income',  'Green values, gains')}
+          ${picker('accentNegative',  'Negative / Expense', 'Red values, losses')}
+          ${picker('accentPending',   'Pending',            'Amber badges')}
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SURFACES</div>
+          ${picker('bgBase',      'Background',        'App background')}
+          ${picker('bgSurface',   'Surface',           'Cards, panels')}
+          ${picker('bgElevated',  'Elevated Surface',  'Dropdowns, buttons')}
+          ${picker('bgHover',     'Hover',             'Row hover background')}
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">TEXT</div>
+          ${picker('textMain',  'Primary Text',   'Headings, body')}
+          ${picker('textMuted', 'Muted Text',     'Labels, secondary')}
+          ${picker('textDim',   'Dim Text',       'Tertiary')}
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end; border-top:1px solid var(--border-subtle); padding-top:1rem;">
+          <button class="btn btn-sm" onclick="app.resetTheme()">↺ Reset to Defaults</button>
+        </div>
+      `;
+    }
+
+    if (screen === 'storage') {
+      const usedBytes = this.calculateStorageBytes();
+      const limitBytes = this.getStorageLimitBytes();
+      const pct = Math.min(100, (usedBytes / limitBytes) * 100);
+      const displayUsed = (usedBytes / 1024 / 1024).toFixed(2);
+      const displayLimit = (limitBytes / 1024 / 1024).toFixed(0);
+
+      let barColor = 'var(--accent-positive)';
+      if (pct > 90) barColor = 'var(--accent-negative)';
+      else if (pct > 70) barColor = 'var(--accent-pending)';
+
+      body = backBtn + `
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:1.5rem 1rem; margin-bottom:1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:0.5rem;">
+            <div>
+              <div class="stat-label" style="font-size:0.65rem;">DATABASE USAGE</div>
+              <div style="font-size:1.4rem; font-weight:700; color:var(--text-main); line-height:1;">
+                ${displayUsed} <span style="font-size:0.8rem; font-weight:400; color:var(--text-muted);">MB / ${displayLimit} MB</span>
+              </div>
+            </div>
+            <div style="font-size:0.8rem; font-weight:600; color:${barColor};">
+              ${pct.toFixed(1)}%
+            </div>
+          </div>
+          <div style="height:12px; background:var(--bg-elevated); border-radius:6px; overflow:hidden; border:1px solid var(--border-subtle); margin-top:0.75rem;">
+            <div style="height:100%; width:${pct}%; background:${barColor}; box-shadow:0 0 10px ${barColor}; transition:width 0.5s ease;"></div>
+          </div>
+        </div>
+        <div style="background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); padding:1rem; font-size:0.85rem; line-height:1.5; color:var(--text-muted);">
+          <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.25rem;">💡 Pro Tip: Switch Browsers for More Space</div>
+          Chrome and Safari typically cap local storage at <strong>5 MB</strong>. Firefox currently allows up to <strong>10 MB</strong>. If you are running low on space, try exporting your profiles and opening this app in Firefox to import them.
+        </div>
+      `;
+    }
+  } // <-- FIX: Removed extra brace here
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:560px; padding-bottom:2rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.5rem;">
+          <h2 style="font-size:1.4rem; font-weight:800; letter-spacing:-0.02em;">⚙ Settings</h2>
+          <button class="btn btn-sm" data-action="closeModal">Close</button>
+        </div>
+        ${body}
+      </div>
+    </div>
+  `);
+}
+
+  
+
+/* ---- Theme preview / save ---- */
+previewThemeColor(key, value) {
+  // Live-apply while the user drags the color picker
+  const map = {
+    accentPrimary:   '--accent-primary',
+    accentSecondary: '--accent-secondary',
+    accentPositive:  '--accent-positive',
+    accentNegative:  '--accent-negative',
+    accentPending:   '--accent-pending',
+    bgBase:          '--bg-base',
+    bgSurface:       '--bg-surface',
+    bgElevated:      '--bg-elevated',
+    bgHover:         '--bg-hover',
+    textMain:        '--text-main',
+    textMuted:       '--text-muted',
+    textDim:         '--text-dim'
+  };
+  if (map[key]) document.documentElement.style.setProperty(map[key], value);
+
+  // Save the whole theme after the user stops dragging (debounced via timeout)
+  if (this._themeSaveT) clearTimeout(this._themeSaveT);
+  this._themeSaveT = setTimeout(() => {
+    const theme = { ...DEFAULT_THEME, ...this.theme };
+    Object.keys(DEFAULT_THEME).forEach(k => {
+      const el = document.getElementById('theme_' + k);
+      if (el) theme[k] = el.value;
+    });
+    this.saveTheme(theme);
+  }, 200);
+}
+
+resetTheme() {
+  if (!confirm('Reset all theme colors to the defaults?')) return;
+  this.saveTheme({});
+  this.applyTheme(DEFAULT_THEME);
+  this.openSettingsModal('appearance');
+  this.showToast('Theme reset to defaults');
+}
+  
   /* ---- Storage Helpers ---- */
-  calculateStorageBytes() {
-    let total = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      const val = localStorage.getItem(key);
-      if (val) {
-        total += new Blob([val]).size;
-      }
+calculateStorageBytes() {
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const val = localStorage.getItem(key);
+    if (val) {
+      // Blob size is more accurate than string.length for UTF-8 data
+      total += new Blob([val]).size;
     }
-    return total;
   }
-  getStorageLimitBytes() {
-    const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
-    return isFirefox ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
-  }
-
-  /* ============ STATE SANITIZATION + MIGRATION ============ */
-  /**
-   * FIX: Central sanitizer used by both loadStateSafe() and importProfile().
-   * Applies version migrations, casing normalization, scenario whitelisting,
-   * estimated-item pruning, and safe defaults.
-   */
-  _sanitizeState(raw) {
-    const s = raw && typeof raw === 'object' ? raw : {};
-
-    // Version migration: v2 -> v3
-    const fromVersion = parseInt(s.version) || 2;
-    if (fromVersion < 3) {
-      // v2 -> v3: nothing structural, just ensure every txn has a `flow` field.
-      // (Applied below anyway, but bumping the version records that we ran.)
-      s.version = 3;
-    }
-
-    // --- Arrays ---
-    s.vaults = Array.isArray(s.vaults) ? s.vaults : [];
-    s.pendingItems = Array.isArray(s.pendingItems) ? s.pendingItems : [];
-    s.transactions = Array.isArray(s.transactions) ? s.transactions : [];
-    s.scenarios = Array.isArray(s.scenarios) ? s.scenarios : [];
-    s.suggestedVaults = Array.isArray(s.suggestedVaults) ? s.suggestedVaults : [];
-    s.nicknameRules = Array.isArray(s.nicknameRules) ? s.nicknameRules : [];
-    s.loans = Array.isArray(s.loans) ? s.loans : [];
-
-    // --- Accounts ---
-    s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
-    if (s.accounts.CHECKING) s.accounts.CHECKING.name = String(s.accounts.CHECKING.name || '').replace(/\s+\d{4}$/, '') || 'Joint Checking';
-    if (s.accounts.SAVINGS)  s.accounts.SAVINGS.name  = String(s.accounts.SAVINGS.name  || '').replace(/\s+\d{4}$/, '') || 'Joint Savings';
-
-    // --- Tax states ---
-    if (!Array.isArray(s.taxStates) || !s.taxStates.length) {
-      s.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-    }
-    if (!s.selectedState) s.selectedState = s.taxStates[0]?.code || 'OK';
-
-    // --- Scenarios: whitelist known types ---
-    s.scenarios.forEach(x => {
-      if (!KNOWN_SCENARIO_TYPES.includes(x.type)) {
-        x.type = 'custom';
-      }
-    });
-
-    // --- Transactions: normalize status, flow, nicknames ---
-    s.transactions.forEach(t => {
-      // status casing: stored data has "POSTED", "posted", "estimated"
-      if (t.status) t.status = String(t.status).toLowerCase();
-
-      // flow: derive from category when possible so Transfers are always Internal Transfer
-      const derivedFlow = CATEGORY_FLOW_MAP[t.category];
-      if (derivedFlow) {
-        t.flow = derivedFlow;
-      } else if (!t.flow) {
-        t.flow = 'Flexible Spending';
-      }
-
-      // numeric coercion (guards against strings in imported data)
-      t.amount  = parseFloat(t.amount)  || 0;
-      t.balance = parseFloat(t.balance) || 0;
-    });
-
-    // --- Prune estimated items beyond the horizon ---
-    const now = new Date();
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() + ESTIMATED_PRUNE_MONTHS);
-    const cutoffStr = cutoff.toISOString().slice(0, 10);
-    s.transactions = s.transactions.filter(t => {
-      if (t.status !== 'estimated') return true;
-      return !t.date || t.date <= cutoffStr;
-    });
-
-    return s;
-  }
-
+  return total;
+}
+getStorageLimitBytes() {
+  // Detect Firefox to give a higher storage limit warning
+  const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
+  return isFirefox ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+}
+  
   /* ============ STATE LOADING + MIGRATION ============ */
-  loadStateSafe() {
-    // 1. Load profile registry
-    let profiles = {};
-    try { profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
-    catch(e) { profiles = {}; }
+loadStateSafe() {
+  // 1. Load profile registry
+  let profiles = {};
+  try { profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
+  catch(e) { profiles = {}; }
 
-    // 2. Determine active profile name
-    let activeName = localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE');
-    if (!activeName || !profiles[activeName]) {
-      const keys = Object.keys(profiles);
-      activeName = keys.length ? keys[0] : 'Default';
-    }
+  // 2. Determine active profile name
+  let activeName = localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE');
+  if (!activeName || !profiles[activeName]) {
+    // Active profile doesn't exist — pick the first available, or 'Default'
+    const keys = Object.keys(profiles);
+    activeName = keys.length ? keys[0] : 'Default';
+  }
 
-    // 3. Migrate legacy MONEY_TRACKER_STATE_V3 → active profile (once)
-    const legacy = localStorage.getItem('MONEY_TRACKER_STATE_V3');
-    if (legacy && !profiles[activeName]?.state) {
-      try {
-        const parsedLegacy = JSON.parse(legacy);
-        profiles[activeName] = {
-          state: parsedLegacy,
-          savedAt: new Date().toISOString()
-        };
-        localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
-        localStorage.removeItem('MONEY_TRACKER_STATE_V3');
-      } catch(e) { console.error('Legacy migration failed:', e); }
-    }
-
-    // 4. Ensure the active profile has a valid state object
-    if (!profiles[activeName]) {
+  // 3. Migrate legacy MONEY_TRACKER_STATE_V3 → active profile (once)
+  const legacy = localStorage.getItem('MONEY_TRACKER_STATE_V3');
+  if (legacy && !profiles[activeName]?.state) {
+    try {
+      const parsedLegacy = JSON.parse(legacy);
       profiles[activeName] = {
-        state: JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE)),
+        state: parsedLegacy,
         savedAt: new Date().toISOString()
       };
-    }
-    if (!profiles[activeName].state) {
-      profiles[activeName].state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
-    }
-
-    // 5. FIX: run the shared sanitizer (migration + normalization + pruning)
-    profiles[activeName].state = this._sanitizeState(profiles[activeName].state);
-
-    // 6. Persist cleaned-up profiles + active name
-    this._bootstrapProfiles = profiles;
-    this._bootstrapActive = activeName;
-    try {
       localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
-      localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', activeName);
-    } catch(e) {
-      console.error('Boot save failed:', e);
-      setTimeout(() => alert('Storage is full. Your data may not save. Please export and remove unused profiles.'), 100);
-    }
-
-    return profiles[activeName].state;
+      localStorage.removeItem('MONEY_TRACKER_STATE_V3');
+    } catch(e) { console.error('Legacy migration failed:', e); }
   }
+
+  // 4. Ensure the active profile has a valid state object
+  if (!profiles[activeName]) {
+    profiles[activeName] = {
+      state: JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE)),
+      savedAt: new Date().toISOString()
+    };
+  }
+  if (!profiles[activeName].state) {
+    profiles[activeName].state = JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE));
+  }
+
+  // 5. Sanitize
+  const s = profiles[activeName].state;
+  s.vaults = s.vaults || [];
+  s.pendingItems = s.pendingItems || [];
+  s.transactions = s.transactions || [];
+  s.scenarios = s.scenarios || [];
+  s.scenarios.forEach(x => { if (!x.type) x.type = 'custom'; });
+  s.suggestedVaults = s.suggestedVaults || [];
+  s.nicknameRules = s.nicknameRules || [];
+  s.loans = s.loans || [];
+  s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
+  if (s.accounts.CHECKING) s.accounts.CHECKING.name = s.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
+  if (s.accounts.SAVINGS)  s.accounts.SAVINGS.name  = s.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+  if (!s.taxStates || !Array.isArray(s.taxStates) || !s.taxStates.length) {
+    s.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+  }
+  if (!s.selectedState) s.selectedState = s.taxStates[0]?.code || 'OK';
+
+  // 6. Persist cleaned-up profiles + active name
+  this._bootstrapProfiles = profiles;
+  this._bootstrapActive = activeName;
+  try {
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', activeName);
+  } catch(e) {
+    console.error('Boot save failed:', e);
+    setTimeout(() => alert('Storage is full. Your data may not save. Please export and remove unused profiles.'), 100);
+  }
+
+  return s;
+}
+
+expandRecurringTemplates() {
+  const templates = this.state.transactions.filter(
+    t => t.status === 'estimated' && t.isTemplate
+  );
+  if (!templates.length) return;              // nothing to do — fresh/legacy data
+
+  const nonRecurring = this.state.transactions.filter(
+    t => !(t.status === 'estimated' && t.groupId)
+  );
+  const out = [...nonRecurring];
+
+  templates.forEach(tmpl => {
+    const cfg      = tmpl.ruleConfig || { interval: 1, freq: 'months' };
+    const interval = Math.max(1, cfg.interval || 1);
+    const freq     = cfg.freq || 'months';
+    const endType  = cfg.endType || 'forever';
+    const endVal   = cfg.endVal;
+    let cur = new Date(tmpl.date + 'T00:00:00');
+
+    for (let i = 0; i < 120; i++) {           // hard cap so nothing can explode
+      if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
+      if (endType === 'count' && endVal && i >= endVal) break;
+
+      const dateStr = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+      out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
+
+      if (freq === 'days')        cur.setDate(cur.getDate() + interval);
+      else if (freq === 'weeks')  cur.setDate(cur.getDate() + 7 * interval);
+      else if (freq === 'months') cur.setMonth(cur.getMonth() + interval);
+      else if (freq === 'years')  cur.setFullYear(cur.getFullYear() + interval);
+    }
+  });
+
+  this.state.transactions = out;
+}
+
+collapseRecurringTemplates() {
+  const seen = new Set();
+  const out  = [];
+  for (const t of this.state.transactions) {
+    if (t.status === 'estimated' && t.groupId) {
+      if (seen.has(t.groupId)) continue;      // drop duplicates
+      seen.add(t.groupId);
+      t.isTemplate = true;
+    } else {
+      delete t.isTemplate;
+    }
+    out.push(t);
+  }
+  this.state.transactions = out;
+}
 
   /* ============ STATE SAVING ============ */
-  saveState() {
-    if (this.saveTimeout) clearTimeout(this.saveTimeout);
-    this.saveTimeout = setTimeout(() => this._flushState(), 1200);
-  }
+saveState() {
+  if (this.saveTimeout) clearTimeout(this.saveTimeout);
+  this.saveTimeout = setTimeout(() => this._flushState(), 1200);
+}
 
-  _flushState() {
-    if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
-    try {
-      const profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {};
-      profiles[this.activeProfile] = {
-        state: this.state,
-        savedAt: new Date().toISOString()
-      };
-      localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
-      localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfile);
-    } catch(e) {
-      console.error('Save failed:', e);
-      if (String(e).includes('Quota') || String(e).includes('quota')) {
-        this.showToast('⚠ Storage full — export a backup and delete unused profiles');
-      } else {
-        this.showToast('Save failed: ' + e.message);
-      }
+_flushState() {
+  if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
+  this.collapseRecurringTemplates();
+  try {
+    const profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {};
+    profiles[this.activeProfile] = {
+      state: this.state,
+      savedAt: new Date().toISOString()
+    };
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfile);
+  } catch(e) {
+    console.error('Save failed:', e);
+    if (String(e).includes('Quota') || String(e).includes('quota')) {
+      this.showToast('⚠ Storage full — export a backup and delete unused profiles');
+    } else {
+      this.showToast('Save failed: ' + e.message);
     }
   }
+}
 
-  /* ============ PROFILE HELPERS ============ */
-  loadProfiles() {
-    try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
-    catch(e) { return {}; }
+/* ============ PROFILE HELPERS ============ */
+loadProfiles() {
+  try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
+  catch(e) { return {}; }
+}
+saveProfiles(profiles) {
+  try {
+    localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
+    return true;
+  } catch(e) {
+    console.error('saveProfiles failed:', e);
+    this.showToast('⚠ Storage full — could not save profile');
+    return false;
   }
-  saveProfiles(profiles) {
-    try {
-      localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
-      return true;
-    } catch(e) {
-      console.error('saveProfiles failed:', e);
-      this.showToast('⚠ Storage full — could not save profile');
-      return false;
-    }
-  }
+}
 
   /* ============ INIT ============ */
   init() {
-    this.applyTheme({ ...DEFAULT_THEME, ...this.theme });
-    this.recalculateBalances();
-    this.applyNicknameRules();
-    this.cleanSpotify();
-    this.recalculateLoanBalances();
-    this.renderTabContent(this.currentTab);
-    this.bindGlobalEvents();
-  }
+  this.expandRecurringTemplates();
+  this.applyTheme({ ...DEFAULT_THEME, ...this.theme });
+  this.recalculateBalances();
+  this.applyNicknameRules();
+  this.cleanSpotify();
+  this.recalculateLoanBalances();
+  this.renderTabContent(this.currentTab);
+  this.bindGlobalEvents();
+}
 
   bindGlobalEvents() {
-    /* FIX: guard against double-binding (was happening on every clearCurrentProfileData→init) */
-    if (this._eventsBound) return;
-    this._eventsBound = true;
-
     document.getElementById('tabStrip').addEventListener('click', (e) => {
       const btn = e.target.closest('.tab-btn');
       if (btn) this.switchTab(btn.dataset.tab);
@@ -817,6 +819,7 @@ class MoneyTrackerApp {
           this.renderCheckingTable();
         }, 300);
       }
+      // Loan editor live total update
       if (e.target.matches('#loanPI') || e.target.matches('#loanEscrow')) {
         this.updateLoanEditorTotal();
       }
@@ -1187,12 +1190,8 @@ class MoneyTrackerApp {
     const escrow = parseFloat(loan.escrow) || 0;
     const derived = Math.max(0, total - escrow);
     if (derived > 0) return derived;
+    // Fallback: auto-calc from terms
     return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, parseFloat(loan.termYears) || 30);
-  }
-
-  /* FIX: strip non-alphanumerics so "usbank" matches "US BANK HOME MTG" */
-  _normalizeForMatch(str) {
-    return String(str || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   }
 
   /* ============ PROGRESSIVE TAX ENGINE ============ */
@@ -1241,7 +1240,6 @@ class MoneyTrackerApp {
       );
     }
 
-    /* FIX: coerce balance to numeric so NaN comparisons don't produce nondeterministic sorts */
     items.sort((a, b) => {
       let va = a[this.sortState.col], vb = b[this.sortState.col];
       if (this.sortState.col === 'amount' || this.sortState.col === 'balance') {
@@ -1273,9 +1271,6 @@ class MoneyTrackerApp {
       ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
       : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
 
-    /* FIX: display status uppercase regardless of stored casing */
-    const statusLabel = (t.status || 'posted').toUpperCase();
-
     return `<tr data-tx-row="${t.id}">
       <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
       <td class="mono">${t.date}</td>
@@ -1286,7 +1281,7 @@ class MoneyTrackerApp {
       <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
       <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
       <td class="mono">$${(parseFloat(t.balance) || 0).toFixed(2)}</td>
-      <td><span class="badge ${isPending ? 'badge-pending' : 'badge-posted'}">${statusLabel}</span></td>
+      <td><span class="badge ${isPending ? 'badge-pending' : 'badge-posted'}">${t.status || 'POSTED'}</span></td>
       <td style="cursor:pointer;" data-toggle-lock="${t.id}">${t.locked ? '🔒' : '🔓'}</td>
     </tr>`;
   }
@@ -1333,7 +1328,7 @@ class MoneyTrackerApp {
         <td>${this.escapeHtml(t.nickname || t.description)}</td>
         <td>${this.escapeHtml(t.category)}</td>
         <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
-        <td><span class="badge badge-posted">${(t.status || 'posted').toUpperCase()}</span></td>
+        <td><span class="badge badge-posted">${t.status || 'POSTED'}</span></td>
       </tr>`).join('');
   }
 
@@ -1457,13 +1452,11 @@ class MoneyTrackerApp {
     const tx = this.state.transactions.find(t => t.id === id);
     if (!tx) return;
     tx.category = newCat; tx.locked = true;
-    /* FIX: keep flow in sync with the new category */
-    tx.flow = CATEGORY_FLOW_MAP[newCat] || tx.flow || 'Flexible Spending';
     this.saveState();
     const row = document.querySelector(`tr[data-tx-row="${id}"]`);
     if (row) {
       const cells = row.querySelectorAll('td');
-      if (cells[4]) cells[4].innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted)">${tx.flow}</span>`;
+      if (cells[4]) cells[4].innerHTML = `<span style="font-size:0.75rem; color:var(--text-muted)">${CATEGORY_FLOW_MAP[newCat] || 'Flexible Spending'}</span>`;
       if (cells[8]) cells[8].innerHTML = tx.locked ? '🔒' : '🔓';
       const sw = row.querySelector('.cat-select-wrapper');
       if (sw) {
@@ -1611,6 +1604,7 @@ class MoneyTrackerApp {
       const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayTxs = dayMap.get(dateStr) || [];
 
+      // Classify day totals
       let dIncome = 0, dExpense = 0, dTransfer = 0;
       dayTxs.forEach(t => {
         const amt = parseFloat(t.amount) || 0;
@@ -1684,6 +1678,7 @@ class MoneyTrackerApp {
       }
       gridFrag.appendChild(cell);
 
+      // Mobile card
       if (dayTxs.length > 0) {
         const mc = document.createElement('div');
         mc.className = 'calendar-mobile-card has-activity';
@@ -1918,6 +1913,7 @@ class MoneyTrackerApp {
       </div>`;
   }
 
+  // Live-computes the total in the loan editor as the user types
   updateLoanEditorTotal() {
     const pi = parseFloat(document.getElementById('loanPI')?.value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow')?.value) || 0;
@@ -1942,6 +1938,7 @@ class MoneyTrackerApp {
     const autoPI = this.calculatePI(bal, rate, term);
     const storedPI = this.getLoanPI(loan);
 
+    // P&I: manual override > stored > auto
     let pi;
     if (this._piManual) {
       pi = parseFloat(document.getElementById('simMinPayment')?.value) || 0;
@@ -1960,11 +1957,12 @@ class MoneyTrackerApp {
     const resEl = document.getElementById('loanSimResults');
     if (!resEl) return;
 
+    // Guard: if payment can't cover interest, show a red warning box
     if (totalMonthly <= monthlyInterest || pi <= 0) {
       resEl.innerHTML = `
         <div style="background:rgba(255,61,113,0.08); border:1px solid rgba(255,61,113,0.3); padding:1rem; border-radius:var(--radius-sm); margin-top:1rem;">
-          <div class="stat-label" style="color:var(--accent-negative);">⚠ Payment too low to cover interest</div>
-          <div style="font-size:0.85rem; color:var(--text-main); margin-top:0.4rem;">
+          <div class="stat-label" style="color:var(--red);">⚠ Payment too low to cover interest</div>
+          <div style="font-size:0.85rem; color:var(--text); margin-top:0.4rem;">
             Your P&amp;I of <span class="mono">$${pi.toFixed(2)}</span> is less than the monthly interest
             of <span class="mono">$${monthlyInterest.toFixed(2)}</span>, so the loan would never pay off.
           </div>
@@ -1993,21 +1991,25 @@ class MoneyTrackerApp {
     const baselineMonthsLabel = yrBaseline > 0 ? `${yrBaseline} yr${yrBaseline !== 1 ? 's' : ''}, ${moBaseline} mo` : `${moBaseline} mo`;
     const baselinePayoffDate = this.getPayoffDate(baseline.months);
 
+    // First-month breakdown
     const interestMonth1 = monthlyInterest;
     const principalMonth1 = Math.max(0, pi - interestMonth1);
 
+    // Lifetime totals
     const totalPaid = bal + result.totalInterest;
     const interestRatio = bal > 0 ? (result.totalInterest / bal) * 100 : 0;
 
     const hasExtra = extra > 0;
 
     resEl.innerHTML = `
+      <!-- PAYOFF DATE -->
       <div style="margin-top:1rem; background:linear-gradient(180deg, rgba(0,229,255,0.06) 0%, rgba(0,229,255,0) 100%); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-md); padding:1rem 1.1rem;">
         <div class="stat-label" style="font-size:0.7rem;">PAYOFF DATE</div>
         <div class="mono" style="font-size:1.6rem; font-weight:700; color:var(--accent-primary); line-height:1.1; margin-top:2px;">${payoffDate}</div>
         <div style="font-size:0.8rem; color:var(--text-muted); margin-top:2px;">In ${monthsLabel} from now</div>
       </div>
 
+      <!-- MONTH-BY-MONTH (first payment) -->
       <div style="margin-top:1rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTH 1 BREAKDOWN</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
@@ -2024,6 +2026,7 @@ class MoneyTrackerApp {
         </div>
       </div>
 
+      <!-- LIFETIME TOTALS -->
       <div style="margin-top:0.75rem; background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">LIFETIME TOTALS</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
@@ -2041,6 +2044,7 @@ class MoneyTrackerApp {
       </div>
 
       ${hasExtra ? `
+      <!-- COMPARISON -->
       <div style="margin-top:0.75rem; background:rgba(0,255,157,0.06); border:1px solid rgba(0,255,157,0.25); border-radius:var(--radius-sm); padding:0.9rem 1rem;">
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem; color:var(--accent-positive);">✓ WITH $${extra.toFixed(2)} EXTRA / MO</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
@@ -2056,6 +2060,7 @@ class MoneyTrackerApp {
           <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
         </div>
       </div>` : `
+      <!-- HINT -->
       <div style="margin-top:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
         💡 Try entering an <strong>Extra Payment</strong> above to see how much time and interest you can save.
       </div>`}
@@ -2140,6 +2145,7 @@ class MoneyTrackerApp {
     const getX = m => padL + (m / maxM) * chartW;
     const getY = b => padT + (1 - b / maxB) * chartH;
 
+    // Legend at top
     const legendY = 14;
     ctx.font = '600 10px Inter';
     ctx.textAlign = 'left';
@@ -2152,6 +2158,7 @@ class MoneyTrackerApp {
     ctx.fillStyle = '#8a8f9e';
     ctx.fillText('Your plan', padL + 105, legendY);
 
+    // Gridlines
     ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
     ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
     for (let i = 0; i <= 4; i++) {
@@ -2161,6 +2168,7 @@ class MoneyTrackerApp {
       ctx.fillText(this.fmt(val), padL - 6, y + 3);
     }
 
+    // X axis labels
     ctx.textAlign = 'center';
     const totalY = Math.ceil(maxM / 12);
     const yStep = Math.max(1, Math.ceil(totalY / 5));
@@ -2168,12 +2176,14 @@ class MoneyTrackerApp {
       ctx.fillText(`Yr ${y}`, getX(y * 12), H - padB + 16);
     }
 
+    // Baseline (dashed purple)
     ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2;
     ctx.setLineDash([5, 4]);
     baseline.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
     ctx.setLineDash([]);
 
+    // Fill under current line
     ctx.beginPath();
     schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.lineTo(getX(schedule[schedule.length - 1].month), padT + chartH);
@@ -2184,6 +2194,7 @@ class MoneyTrackerApp {
     grad.addColorStop(1, 'rgba(0,229,255,0)');
     ctx.fillStyle = grad; ctx.fill();
 
+    // Current (solid cyan)
     ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
     schedule.forEach((d, i) => { const x = getX(d.month), y = getY(d.balance); if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
     ctx.stroke();
@@ -2217,6 +2228,7 @@ class MoneyTrackerApp {
     const rate = parseFloat(l.rate) || 0;
     const escrow = parseFloat(l.escrow) || 0;
     const totalPmt = parseFloat(l.minPayment) || 0;
+    // P&I = total - escrow, or auto-calc if missing
     let pi = Math.max(0, totalPmt - escrow);
     if (pi <= 0) pi = this.calculatePI(bal, rate, l.termYears || 30);
     const totalDisplay = pi + escrow;
@@ -2277,7 +2289,6 @@ class MoneyTrackerApp {
               <input type="text" id="loanFilter" value="${this.escapeHtml(l.paymentFilter || '')}" placeholder="e.g. usbank, MORTGAGE">
               <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px;">
                 Used to auto-reduce the loan balance when matching payments appear in your transactions.
-                Punctuation and spaces are ignored, so "usbank" matches "US BANK HOME MTG".
               </div>
             </div>
           </div>
@@ -2301,7 +2312,7 @@ class MoneyTrackerApp {
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
     const filter = document.getElementById('loanFilter').value.trim();
     if (!name || isNaN(bal) || isNaN(rate)) { alert('Please fill in name, balance, and rate.'); return; }
-    const minPayment = pi + esc;
+    const minPayment = pi + esc; // total
     this.state.loans.push({
       id: `loan_${Date.now()}`,
       name, balance: bal, initialBalance: bal,
@@ -2327,6 +2338,7 @@ class MoneyTrackerApp {
     l.minPayment = pi + esc;
     l.escrow = esc;
     l.paymentFilter = document.getElementById('loanFilter').value.trim();
+    // Reset manual override so it re-derives from the new saved values
     this._piManual = false;
     this.saveState();
     this.closeModal();
@@ -2348,17 +2360,11 @@ class MoneyTrackerApp {
     if (!this.state.loans || !this.state.loans.length) return;
     this.state.loans.forEach(loan => {
       if (!loan.paymentFilter) return;
-      /* FIX: normalize both sides — "usbank" now matches "US BANK HOME MTG" */
-      const filterNorm = this._normalizeForMatch(loan.paymentFilter);
-      if (!filterNorm) return;
-
-      const payments = this.state.transactions.filter(t => {
-        if (t.status === 'estimated') return false;
-        if (!(t.amount < 0)) return false;
-        if (!t.description) return false;
-        return this._normalizeForMatch(t.description).includes(filterNorm);
-      });
-
+      const filter = loan.paymentFilter.toUpperCase();
+      const payments = this.state.transactions.filter(t =>
+        t.status !== 'estimated' && t.amount < 0 &&
+        t.description && t.description.toUpperCase().includes(filter)
+      );
       if (!payments.length) return;
       payments.sort((a, b) => new Date(a.date) - new Date(b.date));
       let bal = parseFloat(loan.initialBalance || loan.balance) || 0;
@@ -2378,96 +2384,97 @@ class MoneyTrackerApp {
 
   /* ============ PAYCHECK ============ */
   calculatePaycheck() {
-    /* FIX: default fallbacks now match the HTML defaults (0, 40, 52, …) */
-    const get = (id, def) => {
-      const raw = document.getElementById(id)?.value;
-      const v = parseFloat(raw);
-      return isNaN(v) ? def : v;
-    };
+  // Only fall back to default if the input is missing or unparseable —
+  // NOT when the value is 0.
+  const get = (id, def) => {
+    const raw = document.getElementById(id)?.value;
+    const v = parseFloat(raw);
+    return isNaN(v) ? def : v;
+  };
 
-    const hourly = get('payHourlyRate', 0);
-    const hours = get('payHours', 40);
-    const weeks = get('payWeeks', 52);
-    const benefits = get('payBenefits', 0);
-    const fedRate = get('payFederalRate', 12);
-    const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
-    const period = document.getElementById('payPeriod')?.value || 'yearly';
+  const hourly = get('payHourlyRate', 17);   // default 0 now, matching the HTML
+  const hours = get('payHours', 40);
+  const weeks = get('payWeeks', 52);
+  const benefits = get('payBenefits', 0);
+  const fedRate = get('payFederalRate', 12);
+  const stateCode = document.getElementById('payState')?.value || this.state.selectedState;
+  const period = document.getElementById('payPeriod')?.value || 'yearly';
 
-    const weeklyGross = hourly * hours;
-    const annualGross = weeklyGross * weeks;
+  const weeklyGross = hourly * hours;
+  const annualGross = weeklyGross * weeks;
 
-    const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
-    let stateTax = 0;
-    let effectiveStateRate = 0;
-    if (stateData) {
-      stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
-      effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
-    }
-
-    const fedTax = annualGross * (fedRate / 100);
-    const ss = annualGross * 0.062;
-    const med = annualGross * 0.0145;
-    const totalTax = fedTax + stateTax + ss + med;
-    const annualBenefits = benefits * 12;
-    const annualNet = annualGross - totalTax - annualBenefits;
-
-    const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
-    const div = divisors[period] || 1;
-    const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
-
-    const pGross = annualGross / div;
-    const pNet = annualNet / div;
-    const pFed = fedTax / div;
-    const pState = stateTax / div;
-    const pSS = ss / div;
-    const pMed = med / div;
-    const pBenefits = annualBenefits / div;
-
-    let bracketBreakdown = '';
-    if (stateData && stateData.brackets.length > 1 && annualGross > 0) {
-      const rows = [];
-      for (const b of stateData.brackets) {
-        if (annualGross <= b.min) break;
-        const taxable = Math.min(annualGross, b.max) - b.min;
-        if (taxable <= 0) continue;
-        const taxAtBracket = taxable * (b.rate / 100);
-        const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
-        rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
-          <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
-          <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
-        </div>`);
-      }
-      if (rows.length > 0) {
-        bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
-          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
-          ${rows.join('')}
-        </div>`;
-      }
-    }
-
-    const el = document.getElementById('paycheckResults');
-    if (!el) return;
-    el.innerHTML = `
-      <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
-        <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
-        <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
-      </div>
-      <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
-        <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
-        <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
-      </div>
-      <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
-        <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
-          <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
-          <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
-          <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
-          <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
-          <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
-        </div>
-        ${bracketBreakdown}
-      </details>`;
+  const stateData = (this.state.taxStates || []).find(s => s.code === stateCode);
+  let stateTax = 0;
+  let effectiveStateRate = 0;
+  if (stateData) {
+    stateTax = this.calculateProgressiveTax(annualGross, stateData.brackets);
+    effectiveStateRate = annualGross > 0 ? (stateTax / annualGross) * 100 : 0;
   }
+
+  const fedTax = annualGross * (fedRate / 100);
+  const ss = annualGross * 0.062;
+  const med = annualGross * 0.0145;
+  const totalTax = fedTax + stateTax + ss + med;
+  const annualBenefits = benefits * 12;
+  const annualNet = annualGross - totalTax - annualBenefits;
+
+  const divisors = { weekly: 52, biweekly: 26, monthly: 12, yearly: 1 };
+  const div = divisors[period] || 1;
+  const periodLabel = { weekly: 'Weekly', biweekly: 'Bi-Weekly', monthly: 'Monthly', yearly: 'Yearly' }[period];
+
+  const pGross = annualGross / div;
+  const pNet = annualNet / div;
+  const pFed = fedTax / div;
+  const pState = stateTax / div;
+  const pSS = ss / div;
+  const pMed = med / div;
+  const pBenefits = annualBenefits / div;
+
+  let bracketBreakdown = '';
+  if (stateData && stateData.brackets.length > 1 && annualGross > 0) {
+    const rows = [];
+    for (const b of stateData.brackets) {
+      if (annualGross <= b.min) break;
+      const taxable = Math.min(annualGross, b.max) - b.min;
+      if (taxable <= 0) continue;
+      const taxAtBracket = taxable * (b.rate / 100);
+      const maxLabel = b.max >= MAX_BRACKET ? '+' : `$${b.max.toLocaleString()}`;
+      rows.push(`<div style="display:flex; justify-content:space-between; font-size:0.75rem; padding:0.15rem 0;">
+        <span style="color:var(--text-muted);">$${b.min.toLocaleString()} - ${maxLabel} @ ${b.rate}%</span>
+        <span class="mono" style="color:var(--accent-negative);">$${(taxAtBracket / div).toFixed(2)}</span>
+      </div>`);
+    }
+    if (rows.length > 0) {
+      bracketBreakdown = `<div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
+        <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">${this.escapeHtml(stateData.name)} Brackets (${periodLabel})</div>
+        ${rows.join('')}
+      </div>`;
+    }
+  }
+
+  const el = document.getElementById('paycheckResults');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="text-align:center; padding:1.5rem 1rem; background:linear-gradient(180deg, rgba(0,255,157,0.08) 0%, rgba(0,255,157,0) 100%); border-radius:var(--radius-md); border:1px solid rgba(0,255,157,0.2);">
+      <div class="stat-label" style="justify-content:center;">NET TAKE HOME (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:2.5rem; font-weight:700; color:var(--accent-positive); line-height:1.1;">$${pNet.toFixed(2)}</div>
+    </div>
+    <div style="text-align:center; padding:0.75rem 1rem 0.5rem;">
+      <div class="stat-label" style="justify-content:center;">GROSS (${periodLabel.toUpperCase()})</div>
+      <div class="mono" style="font-size:1.2rem; font-weight:600; color:var(--text-main);">$${pGross.toFixed(2)}</div>
+    </div>
+    <details style="background:var(--bg-base); border-radius:var(--radius-sm); border:1px solid var(--border-subtle); padding:0.5rem 1rem; margin-top:0.5rem;">
+      <summary style="cursor:pointer; font-weight:600; font-size:0.85rem; color:var(--text-muted); padding:0.4rem 0; user-select:none;">Deductions Breakdown</summary>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; font-size:0.85rem; padding-top:0.5rem;">
+        <div>Federal (${fedRate}%): <span class="mono" style="color:var(--accent-negative);">$${pFed.toFixed(2)}</span></div>
+        <div>${stateData ? this.escapeHtml(stateData.name) : 'State'} (${effectiveStateRate.toFixed(2)}%): <span class="mono" style="color:var(--accent-negative);">$${pState.toFixed(2)}</span></div>
+        <div>Social Security: <span class="mono" style="color:var(--accent-negative);">$${pSS.toFixed(2)}</span></div>
+        <div>Medicare: <span class="mono" style="color:var(--accent-negative);">$${pMed.toFixed(2)}</span></div>
+        <div>Benefits: <span class="mono" style="color:var(--accent-negative);">$${pBenefits.toFixed(2)}</span></div>
+      </div>
+      ${bracketBreakdown}
+    </details>`;
+}
 
   /* ============ TAX BRACKET MODAL ============ */
   openTaxBracketModal() {
@@ -2497,15 +2504,15 @@ class MoneyTrackerApp {
           <div id="tbEditor"></div>
 
           <div style="display:flex; justify-content:space-between; gap:0.5rem; margin-top:1.5rem; flex-wrap:wrap;">
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
-              <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
-            </div>
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn" data-action="closeModal">Cancel</button>
-              <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
-            </div>
-          </div>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn btn-danger btn-sm" data-action="deleteTaxState">Delete State</button>
+    <button class="btn btn-sm" data-action="resetTaxBrackets" title="Restore all default state brackets">↺ Reset to Defaults</button>
+  </div>
+  <div style="display:flex; gap:0.5rem;">
+    <button class="btn" data-action="closeModal">Cancel</button>
+    <button class="btn btn-primary" data-action="saveTaxBrackets">Save Brackets</button>
+  </div>
+</div>
         </div>
       </div>`);
     if (current) this.loadBracketEditor(current.code);
@@ -2605,17 +2612,17 @@ class MoneyTrackerApp {
   }
 
   resetTaxBrackets() {
-    if (!confirm(
-      'Reset to default state brackets?\n\n' +
-      'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
-      'Any custom states you have added will be removed.'
-    )) return;
-    this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
-    this.state.selectedState = 'OK';
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent('paycheck');
-    this.showToast('Reset to default state brackets');
+  if (!confirm(
+    'Reset to default state brackets?\n\n' +
+    'This will restore Oklahoma, Kansas, Colorado, Texas, and Florida. ' +
+    'Any custom states you have added will be removed.'
+  )) return;
+  this.state.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
+  this.state.selectedState = 'OK';
+  this.saveState();
+  this.closeModal();
+  this.renderTabContent('paycheck');
+  this.showToast('Reset to default state brackets');
   }
 
   newTaxState() {
@@ -2644,39 +2651,43 @@ class MoneyTrackerApp {
 
   /* ============ FORECASTER ============ */
   syncForecaster() {
-    const estimated = this.state.transactions.filter(t => t.status === 'estimated');
+  const estimated = this.state.transactions.filter(t => t.status === 'estimated');
 
-    const groups = new Map();
-    estimated.forEach(t => {
-      const gid = t.groupId || ('solo_' + t.id);
-      if (!groups.has(gid)) groups.set(gid, t);
-    });
+  // Group by groupId — a recurring item exists as N copies of the same
+  // group, so we must only count each unique group ONCE.
+  // Transactions without a groupId (legacy data) are treated as their
+  // own single-item group.
+  const groups = new Map();
+  estimated.forEach(t => {
+    const gid = t.groupId || ('solo_' + t.id);
+    if (!groups.has(gid)) groups.set(gid, t);
+  });
 
-    let inc = 0, fix = 0;
-    groups.forEach(t => {
-      const abs = Math.abs(parseFloat(t.amount) || 0);
-      const cfg = t.ruleConfig || { interval: 1, freq: 'months' };
-      const int = Math.max(1, cfg.interval || 1);
-      let monthly = 0;
-      if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
-      else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
-      else if (cfg.freq === 'months') monthly = abs / int;
-      else if (cfg.freq === 'years') monthly = abs / (12 * int);
-      else monthly = abs;
+  let inc = 0, fix = 0;
+  groups.forEach(t => {
+    const abs = Math.abs(parseFloat(t.amount) || 0);
+    const cfg = t.ruleConfig || { interval: 1, freq: 'months' };
+    const int = Math.max(1, cfg.interval || 1);
+    let monthly = 0;
+    if (cfg.freq === 'days') monthly = (abs / int) * (365 / 12);
+    else if (cfg.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+    else if (cfg.freq === 'months') monthly = abs / int;
+    else if (cfg.freq === 'years') monthly = abs / (12 * int);
+    else monthly = abs; // safe default
 
-      const isIncome = t.amount > 0 || t.category === 'Income' || t.flow === 'Income';
-      if (isIncome) inc += monthly;
-      else fix += monthly;
-    });
+    const isIncome = t.amount > 0 || t.category === 'Income' || t.flow === 'Income';
+    if (isIncome) inc += monthly;
+    else fix += monthly;
+  });
 
-    const incEl = document.getElementById('fcAvgIncome');
-    const fixEl = document.getElementById('fcAvgFixed');
-    if (incEl) incEl.value = inc.toFixed(2);
-    if (fixEl) fixEl.value = fix.toFixed(2);
+  const incEl = document.getElementById('fcAvgIncome');
+  const fixEl = document.getElementById('fcAvgFixed');
+  if (incEl) incEl.value = inc.toFixed(2);
+  if (fixEl) fixEl.value = fix.toFixed(2);
 
-    this.renderForecaster();
-    this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
-  }
+  this.renderForecaster();
+  this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
+}
 
   renderForecaster() {
     const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
@@ -3186,11 +3197,7 @@ class MoneyTrackerApp {
     this.state.transactions.forEach(t => {
       if (t.description && t.description.toLowerCase().includes(pattern.toLowerCase())) {
         if (nickname) t.nickname = nickname;
-        if (category) {
-          t.category = category;
-          t.flow = CATEGORY_FLOW_MAP[category] || t.flow;
-          t.locked = true;
-        }
+        if (category) { t.category = category; t.locked = true; }
         count++;
       }
     });
@@ -3254,59 +3261,33 @@ class MoneyTrackerApp {
     }
   }
 
-  /* FIX: proper CSV row parser that respects quoted fields containing commas */
-  _parseCsvRow(line) {
-    const out = [];
-    let cur = '';
-    let inQuotes = false;
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i];
-      if (ch === '"') {
-        if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
-        else inQuotes = !inQuotes;
-      } else if (ch === ',' && !inQuotes) {
-        out.push(cur);
-        cur = '';
-      } else {
-        cur += ch;
-      }
-    }
-    out.push(cur);
-    return out.map(s => s.trim());
-  }
-
   commitImport() {
     if (!this.stagedFiles.length) return;
     const target = document.getElementById('importAccountTarget').value;
     let count = 0, pending = this.stagedFiles.length;
-    /* FIX: bump a counter per row so rapid rows don't share a timestamp */
-    this._importSeq = 0;
-
     this.stagedFiles.forEach(file => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const lines = e.target.result.split(/\r?\n/);
+        const lines = e.target.result.split('\n');
         lines.forEach((line, idx) => {
           if (idx === 0 || !line.trim()) return;
-          const parts = this._parseCsvRow(line);
+          const parts = line.split(',');
           if (parts.length >= 3) {
-            const date = parts[0];
-            let desc = parts[1];
-            const amt = parseFloat(parts[2]);
-            let bal = parts.length >= 4 ? parseFloat(parts[3]) : 0;
+            const date = parts[0].replace(/"/g, '').trim();
+            let desc = parts[1].replace(/"/g, '').trim();
+            const amt = parseFloat(parts[2].replace(/"/g, '').trim());
+            let bal = parts.length >= 4 ? parseFloat(parts[3].replace(/"/g, '').trim()) : 0;
             if (isNaN(bal)) bal = 0;
             if (desc.toUpperCase().startsWith('SPOTIFY')) desc = 'Spotify';
             if (!isNaN(amt) && date) {
               let cat = 'Miscellaneous', flow = 'Flexible Spending';
               const rule = CATEGORY_RULES.find(r => desc.toUpperCase().includes(r.contains));
               if (rule) { cat = rule.category; flow = rule.flow; }
-              const seq = this._importSeq++;
               this.state.transactions.push({
-                id: `tx_${Date.now()}_${seq}_${Math.random().toString(36).slice(2, 7)}`,
+                id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                 account: target, date, description: desc,
                 nickname: this.getMatchingNickname(desc),
-                /* FIX: store lowercase status for consistency with the filter logic */
-                category: cat, flow, amount: amt, balance: bal, status: 'posted'
+                category: cat, flow, amount: amt, balance: bal, status: 'POSTED'
               });
               count++;
             }
@@ -3434,7 +3415,7 @@ class MoneyTrackerApp {
       date: new Date().toISOString().split('T')[0],
       description: `Transfer to Vault: ${vault.name}`,
       category: 'Transfers', flow: 'Internal Transfer',
-      amount: -amount, balance: 0, status: 'posted'
+      amount: -amount, balance: 0, status: 'POSTED'
     });
     vault.balance += amount;
     this.recalculateBalances();
@@ -3518,11 +3499,7 @@ class MoneyTrackerApp {
     this.state.transactions.forEach(t => {
       if (t.description && t.description.toLowerCase().includes(q)) {
         if (nick) t.nickname = nick;
-        if (cat) {
-          t.category = cat;
-          t.flow = CATEGORY_FLOW_MAP[cat] || t.flow;
-          t.locked = true;
-        }
+        if (cat) { t.category = cat; t.locked = true; }
         count++;
       }
     });
@@ -3887,10 +3864,7 @@ class MoneyTrackerApp {
                 <option value="months">Months</option><option value="years">Years</option>
               </select></div>
             </div>
-            <div><label class="stat-label">End After (occurrences)</label><input type="number" id="recCount" value="12" min="1" max="60"></div>
-            <div style="font-size:0.7rem; color:var(--text-dim);">
-              Each new recurring item generates at most 24 estimated occurrences to keep storage lean.
-            </div>
+            <div><label class="stat-label">End After (occurrences)</label><input type="number" id="recCount" value="12" min="1"></div>
           </div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
             <button class="btn" data-action="closeModal">Cancel</button>
@@ -3908,13 +3882,15 @@ class MoneyTrackerApp {
     const start = document.getElementById('recStart').value;
     const interval = parseInt(document.getElementById('recInterval').value) || 1;
     const freq = document.getElementById('recFreq').value;
-    const rawCount = parseInt(document.getElementById('recCount').value) || 12;
-    const count = Math.min(rawCount, 24);
+    // Cap the total generated occurrences to 24 (or 36 for 3 years)
+// This prevents localStorage from blowing up
+const rawCount = parseInt(document.getElementById('recCount').value) || 12;
+const count = Math.min(rawCount, 24); 
 
-    if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
-    const groupId = `rec_${Date.now()}`;
-    let curDate = new Date(start + 'T00:00:00');
-    for (let i = 0; i < count; i++) {
+if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
+const groupId = `rec_${Date.now()}`;
+let curDate = new Date(start + 'T00:00:00');
+for (let i = 0; i < count; i++) {
       const dateStr = `${curDate.getFullYear()}-${String(curDate.getMonth() + 1).padStart(2, '0')}-${String(curDate.getDate()).padStart(2, '0')}`;
       this.state.transactions.push({
         id: `est_${Date.now()}_${i}`, groupId, account: acc, date: dateStr,
