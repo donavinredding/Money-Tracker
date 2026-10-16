@@ -132,6 +132,236 @@ class MoneyTrackerApp {
   this._settingsTab = 'profiles';
 }
 
+/* ============ STORAGE HEALTH / TRIM ============ */
+checkStorageHealth() {
+  const banner = document.getElementById('storageWarningBanner');
+  const used  = this.calculateStorageBytes();
+  const limit = this.getStorageLimitBytes();
+  const pct   = (used / limit) * 100;
+
+  document.body.classList.toggle('storage-warn-active', pct >= 85 && !this._bannerDismissed);
+
+  if (!banner) return pct;
+
+  if (pct >= 85 && !this._bannerDismissed) {
+    banner.style.display = 'flex';
+    banner.classList.toggle('warn',   pct <  95);
+    banner.classList.toggle('danger', pct >= 95);
+    const pctEl  = banner.querySelector('.storage-pct');
+    const usedEl = banner.querySelector('.storage-used');
+    if (pctEl)  pctEl.innerText  = pct.toFixed(1) + '%';
+    if (usedEl) usedEl.innerText = (used / 1024 / 1024).toFixed(2) + ' MB';
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Auto-popup the modal once when we cross into "danger" territory
+  if (pct >= 95 && !this._storageModalShown) {
+    this._storageModalShown = true;
+    this.openStorageFullModal();
+  } else if (pct < 85) {
+    this._storageModalShown = false;  // reset so it can fire again later
+  }
+
+  return pct;
+}
+
+dismissStorageBanner() {
+  this._bannerDismissed = true;
+  document.body.classList.remove('storage-warn-active');
+  const b = document.getElementById('storageWarningBanner');
+  if (b) b.style.display = 'none';
+}
+
+openStorageFullModal() {
+  const used  = this.calculateStorageBytes();
+  const limit = this.getStorageLimitBytes();
+  const pct   = (used / limit) * 100;
+  const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
+  const curMonths = templates.length
+    ? Math.max(...templates.map(t => t.ruleConfig?.maxMonths || 32))
+    : 32;
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:500px;">
+        <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:0.75rem; color:var(--accent-negative);">
+          ⚠ Storage Almost Full
+        </h2>
+        <p style="color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:0.75rem;">
+          Your browser storage is <strong style="color:var(--accent-negative);">${pct.toFixed(1)}%</strong> full
+          (${(used/1024/1024).toFixed(2)} MB of ${(limit/1024/1024).toFixed(0)} MB). New saves may fail soon.
+        </p>
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-bottom:1rem; font-size:0.82rem; line-height:1.5;">
+          <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.4rem;">💡 Suggested fix</div>
+          Trim the projection window of recurring items (Spotify, Mortgage, Gas Bill, etc.)
+          from the current <strong>${curMonths} months</strong> down to a shorter window.
+          <div style="color:var(--text-dim); margin-top:0.5rem;">
+            ✓ Your posted / real transactions are never touched<br>
+            ✓ Recurring rules (interval, category, amount) are preserved<br>
+            ✓ You can re-extend the window anytime by editing a recurring item
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+          <button class="btn" data-action="closeModal">Not Now</button>
+          <button class="btn btn-primary" data-action="trimRecurringAndClose">Trim Recurring Now</button>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+trimRecurringAndClose() {
+  const ok = this.trimRecurringToFit();
+  this.closeModal();
+  this.renderTabContent(this.currentTab);
+  this.showToast(ok
+    ? '✓ Trimmed — storage is now safe'
+    : 'Could not free enough space. Try exporting and deleting unused profiles.');
+}
+
+trimRecurringToFit() {
+  for (let pass = 0; pass < 20; pass++) {
+    const pct = this.calculateStorageBytes() / this.getStorageLimitBytes();
+    if (pct < 0.70) return true;
+
+    const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
+    let changed = false;
+    templates.forEach(tmpl => {
+      if (!tmpl.ruleConfig) tmpl.ruleConfig = {};
+      const cur = tmpl.ruleConfig.maxMonths || 32;
+      if (cur > 1) {
+        tmpl.ruleConfig.maxMonths = Math.max(1, Math.floor(cur * 0.7));
+        changed = true;
+      }
+    });
+    if (!changed) return false;
+
+    const nonRec = this.state.transactions.filter(
+      t => !(t.status === 'estimated' && t.groupId)
+    );
+    this.state.transactions = [...nonRec, ...templates];
+    this.expandRecurringTemplates();
+    if (!this._flushState()) return false;
+  }
+  return this.calculateStorageBytes() / this.getStorageLimitBytes() < 0.85;
+}
+
+/* ============ STORAGE HEALTH / TRIM ============ */
+checkStorageHealth() {
+  const banner = document.getElementById('storageWarningBanner');
+  const used  = this.calculateStorageBytes();
+  const limit = this.getStorageLimitBytes();
+  const pct   = (used / limit) * 100;
+
+  document.body.classList.toggle('storage-warn-active', pct >= 85 && !this._bannerDismissed);
+
+  if (!banner) return pct;
+
+  if (pct >= 85 && !this._bannerDismissed) {
+    banner.style.display = 'flex';
+    banner.classList.toggle('warn',   pct <  95);
+    banner.classList.toggle('danger', pct >= 95);
+    const pctEl  = banner.querySelector('.storage-pct');
+    const usedEl = banner.querySelector('.storage-used');
+    if (pctEl)  pctEl.innerText  = pct.toFixed(1) + '%';
+    if (usedEl) usedEl.innerText = (used / 1024 / 1024).toFixed(2) + ' MB';
+  } else {
+    banner.style.display = 'none';
+  }
+
+  // Auto-popup the modal once when we cross into "danger" territory
+  if (pct >= 95 && !this._storageModalShown) {
+    this._storageModalShown = true;
+    this.openStorageFullModal();
+  } else if (pct < 85) {
+    this._storageModalShown = false;  // reset so it can fire again later
+  }
+
+  return pct;
+}
+
+dismissStorageBanner() {
+  this._bannerDismissed = true;
+  document.body.classList.remove('storage-warn-active');
+  const b = document.getElementById('storageWarningBanner');
+  if (b) b.style.display = 'none';
+}
+
+openStorageFullModal() {
+  const used  = this.calculateStorageBytes();
+  const limit = this.getStorageLimitBytes();
+  const pct   = (used / limit) * 100;
+  const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
+  const curMonths = templates.length
+    ? Math.max(...templates.map(t => t.ruleConfig?.maxMonths || 32))
+    : 32;
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:500px;">
+        <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:0.75rem; color:var(--accent-negative);">
+          ⚠ Storage Almost Full
+        </h2>
+        <p style="color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:0.75rem;">
+          Your browser storage is <strong style="color:var(--accent-negative);">${pct.toFixed(1)}%</strong> full
+          (${(used/1024/1024).toFixed(2)} MB of ${(limit/1024/1024).toFixed(0)} MB). New saves may fail soon.
+        </p>
+        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-bottom:1rem; font-size:0.82rem; line-height:1.5;">
+          <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.4rem;">💡 Suggested fix</div>
+          Trim the projection window of recurring items (Spotify, Mortgage, Gas Bill, etc.)
+          from the current <strong>${curMonths} months</strong> down to a shorter window.
+          <div style="color:var(--text-dim); margin-top:0.5rem;">
+            ✓ Your posted / real transactions are never touched<br>
+            ✓ Recurring rules (interval, category, amount) are preserved<br>
+            ✓ You can re-extend the window anytime by editing a recurring item
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
+          <button class="btn" data-action="closeModal">Not Now</button>
+          <button class="btn btn-primary" data-action="trimRecurringAndClose">Trim Recurring Now</button>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+trimRecurringAndClose() {
+  const ok = this.trimRecurringToFit();
+  this.closeModal();
+  this.renderTabContent(this.currentTab);
+  this.showToast(ok
+    ? '✓ Trimmed — storage is now safe'
+    : 'Could not free enough space. Try exporting and deleting unused profiles.');
+}
+
+trimRecurringToFit() {
+  for (let pass = 0; pass < 20; pass++) {
+    const pct = this.calculateStorageBytes() / this.getStorageLimitBytes();
+    if (pct < 0.70) return true;
+
+    const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
+    let changed = false;
+    templates.forEach(tmpl => {
+      if (!tmpl.ruleConfig) tmpl.ruleConfig = {};
+      const cur = tmpl.ruleConfig.maxMonths || 32;
+      if (cur > 1) {
+        tmpl.ruleConfig.maxMonths = Math.max(1, Math.floor(cur * 0.7));
+        changed = true;
+      }
+    });
+    if (!changed) return false;
+
+    const nonRec = this.state.transactions.filter(
+      t => !(t.status === 'estimated' && t.groupId)
+    );
+    this.state.transactions = [...nonRec, ...templates];
+    this.expandRecurringTemplates();
+    if (!this._flushState()) return false;
+  }
+  return this.calculateStorageBytes() / this.getStorageLimitBytes() < 0.85;
+}
+  
   /* ============================================================
    PROFILES, BACKUP, THEME
    ============================================================ */
@@ -654,6 +884,67 @@ loadStateSafe() {
   return s;
 }
 
+/* ============ RECURRING EXPAND / COLLAPSE ============ */
+expandRecurringTemplates() {
+  const templates = this.state.transactions.filter(
+    t => t.status === 'estimated' && t.isTemplate
+  );
+  if (!templates.length) return;   // already expanded, or no recurring
+
+  const nonTemplates = this.state.transactions.filter(
+    t => !(t.status === 'estimated' && t.isTemplate)
+  );
+  const out = [...nonTemplates];
+
+  templates.forEach(tmpl => {
+    const cfg       = tmpl.ruleConfig || { interval: 1, freq: 'months' };
+    const interval  = Math.max(1, cfg.interval || 1);
+    const freq      = cfg.freq || 'months';
+    const endType   = cfg.endType || 'forever';
+    const endVal    = cfg.endVal;
+    const maxMonths = Math.max(1, Math.min(cfg.maxMonths || 32, 32));  // HARD 32-MONTH CAP
+
+    const startDate = new Date(tmpl.date + 'T00:00:00');
+    const capDate   = new Date(startDate);
+    capDate.setMonth(capDate.getMonth() + maxMonths);
+
+    let cur = new Date(startDate);
+    let i = 0;
+    while (cur <= capDate && i < 200) {
+      if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
+      if (endType === 'count' && endVal && i >= endVal) break;
+
+      const dateStr = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+      out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
+
+      if (freq === 'days')        cur.setDate(cur.getDate() + interval);
+      else if (freq === 'weeks')  cur.setDate(cur.getDate() + 7 * interval);
+      else if (freq === 'months') cur.setMonth(cur.getMonth() + interval);
+      else if (freq === 'years')  cur.setFullYear(cur.getFullYear() + interval);
+      i++;
+    }
+  });
+
+  this.state.transactions = out;
+}
+
+collapseRecurringForStorage() {
+  const seen = new Set();
+  const out = [];
+  for (const t of this.state.transactions) {
+    if (t.status === 'estimated' && t.groupId) {
+      if (seen.has(t.groupId)) continue;
+      seen.add(t.groupId);
+      out.push({ ...t, id: `${t.groupId}_template`, isTemplate: true });
+    } else {
+      const c = { ...t };
+      delete c.isTemplate;
+      out.push(c);
+    }
+  }
+  return out;
+}
+  
 expandRecurringTemplates() {
   const templates = this.state.transactions.filter(
     t => t.status === 'estimated' && t.isTemplate
@@ -714,22 +1005,26 @@ saveState() {
 
 _flushState() {
   if (this.saveTimeout) { clearTimeout(this.saveTimeout); this.saveTimeout = null; }
-  this.collapseRecurringTemplates();
   try {
     const profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {};
+    const compactState = { ...this.state, transactions: this.collapseRecurringForStorage() };
     profiles[this.activeProfile] = {
-      state: this.state,
+      state: compactState,
       savedAt: new Date().toISOString()
     };
     localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
     localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfile);
+    this.checkStorageHealth();
+    return true;
   } catch(e) {
     console.error('Save failed:', e);
     if (String(e).includes('Quota') || String(e).includes('quota')) {
-      this.showToast('⚠ Storage full — export a backup and delete unused profiles');
+      this.showToast('⚠ Storage full — see banner for options');
+      this.checkStorageHealth();
     } else {
       this.showToast('Save failed: ' + e.message);
     }
+    return false;
   }
 }
 
@@ -751,7 +1046,7 @@ saveProfiles(profiles) {
 
   /* ============ INIT ============ */
   init() {
-  this.expandRecurringTemplates();
+  this.expandRecurringTemplates();                                  // <-- ADD
   this.applyTheme({ ...DEFAULT_THEME, ...this.theme });
   this.recalculateBalances();
   this.applyNicknameRules();
@@ -759,7 +1054,9 @@ saveProfiles(profiles) {
   this.recalculateLoanBalances();
   this.renderTabContent(this.currentTab);
   this.bindGlobalEvents();
-}
+  this.checkStorageHealth();                                        // <-- ADD
+  setTimeout(() => this._flushState(), 100);                        // <-- ADD (compresses on-disk data)
+  }
 
   bindGlobalEvents() {
     document.getElementById('tabStrip').addEventListener('click', (e) => {

@@ -11,6 +11,13 @@
 </head>
 <body>
 
+<div id="storageWarningBanner" class="storage-warning-banner" style="display:none;">
+  <span>⚠ Storage <span class="storage-pct">0%</span> full — <span class="storage-used">0 MB</span></span>
+  <button onclick="app.openSettingsModal('storage')">Manage</button>
+  <button onclick="app.openStorageFullModal()">Trim</button>
+  <button onclick="app.dismissStorageBanner()">✕</button>
+</div>
+  
 <header class="top-bar">
   <div class="brand">
     <svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -50,5 +57,5 @@
 <div class="toast-container" id="toastContainer"></div>
 
 <script src="app.js"></script>
-</body>
+</>
 </html>

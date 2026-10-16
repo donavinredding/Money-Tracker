@@ -42,6 +42,53 @@ font-size: 14px;
 line-height: 1.5;
 }
 
+.storage-warning-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 44px;
+  z-index: 200;
+  background: linear-gradient(90deg, #ff3d71, #ff1744);
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 0 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  box-shadow: 0 2px 16px rgba(255, 61, 113, 0.6);
+  letter-spacing: 0.02em;
+  animation: storagePulse 1.6s ease-in-out infinite;
+  flex-wrap: wrap;
+}
+.storage-warning-banner.warn {
+  background: linear-gradient(90deg, #ffb020, #ff8f00);
+  box-shadow: 0 2px 16px rgba(255, 176, 32, 0.5);
+}
+.storage-warning-banner.danger { animation-duration: 0.9s; }
+.storage-warning-banner button {
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  color: #fff;
+  padding: 0.22rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.73rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.15s;
+}
+.storage-warning-banner button:hover { background: rgba(0, 0, 0, 0.5); }
+
+body.storage-warn-active { padding-top: 44px; }
+body.storage-warn-active .top-bar { top: 44px; }
+body.storage-warn-active .nav-tabs { top: 104px; }
+
+@keyframes storagePulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.82; }
+}
+
 .mono { font-family: var(--font-mono) !important; letter-spacing: -0.02em; }
 .card {
 background: var(--bg-surface);
