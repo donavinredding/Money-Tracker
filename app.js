@@ -246,121 +246,6 @@ trimRecurringToFit() {
   }
   return this.calculateStorageBytes() / this.getStorageLimitBytes() < 0.85;
 }
-
-/* ============ STORAGE HEALTH / TRIM ============ */
-checkStorageHealth() {
-  const banner = document.getElementById('storageWarningBanner');
-  const used  = this.calculateStorageBytes();
-  const limit = this.getStorageLimitBytes();
-  const pct   = (used / limit) * 100;
-
-  document.body.classList.toggle('storage-warn-active', pct >= 85 && !this._bannerDismissed);
-
-  if (!banner) return pct;
-
-  if (pct >= 85 && !this._bannerDismissed) {
-    banner.style.display = 'flex';
-    banner.classList.toggle('warn',   pct <  95);
-    banner.classList.toggle('danger', pct >= 95);
-    const pctEl  = banner.querySelector('.storage-pct');
-    const usedEl = banner.querySelector('.storage-used');
-    if (pctEl)  pctEl.innerText  = pct.toFixed(1) + '%';
-    if (usedEl) usedEl.innerText = (used / 1024 / 1024).toFixed(2) + ' MB';
-  } else {
-    banner.style.display = 'none';
-  }
-
-  // Auto-popup the modal once when we cross into "danger" territory
-  if (pct >= 95 && !this._storageModalShown) {
-    this._storageModalShown = true;
-    this.openStorageFullModal();
-  } else if (pct < 85) {
-    this._storageModalShown = false;  // reset so it can fire again later
-  }
-
-  return pct;
-}
-
-dismissStorageBanner() {
-  this._bannerDismissed = true;
-  document.body.classList.remove('storage-warn-active');
-  const b = document.getElementById('storageWarningBanner');
-  if (b) b.style.display = 'none';
-}
-
-openStorageFullModal() {
-  const used  = this.calculateStorageBytes();
-  const limit = this.getStorageLimitBytes();
-  const pct   = (used / limit) * 100;
-  const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
-  const curMonths = templates.length
-    ? Math.max(...templates.map(t => t.ruleConfig?.maxMonths || 32))
-    : 32;
-
-  this.openModal(`
-    <div class="modal-overlay active">
-      <div class="modal" style="max-width:500px;">
-        <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:0.75rem; color:var(--accent-negative);">
-          ⚠ Storage Almost Full
-        </h2>
-        <p style="color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:0.75rem;">
-          Your browser storage is <strong style="color:var(--accent-negative);">${pct.toFixed(1)}%</strong> full
-          (${(used/1024/1024).toFixed(2)} MB of ${(limit/1024/1024).toFixed(0)} MB). New saves may fail soon.
-        </p>
-        <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-bottom:1rem; font-size:0.82rem; line-height:1.5;">
-          <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.4rem;">💡 Suggested fix</div>
-          Trim the projection window of recurring items (Spotify, Mortgage, Gas Bill, etc.)
-          from the current <strong>${curMonths} months</strong> down to a shorter window.
-          <div style="color:var(--text-dim); margin-top:0.5rem;">
-            ✓ Your posted / real transactions are never touched<br>
-            ✓ Recurring rules (interval, category, amount) are preserved<br>
-            ✓ You can re-extend the window anytime by editing a recurring item
-          </div>
-        </div>
-        <div style="display:flex; gap:0.5rem; justify-content:flex-end;">
-          <button class="btn" data-action="closeModal">Not Now</button>
-          <button class="btn btn-primary" data-action="trimRecurringAndClose">Trim Recurring Now</button>
-        </div>
-      </div>
-    </div>
-  `);
-}
-
-trimRecurringAndClose() {
-  const ok = this.trimRecurringToFit();
-  this.closeModal();
-  this.renderTabContent(this.currentTab);
-  this.showToast(ok
-    ? '✓ Trimmed — storage is now safe'
-    : 'Could not free enough space. Try exporting and deleting unused profiles.');
-}
-
-trimRecurringToFit() {
-  for (let pass = 0; pass < 20; pass++) {
-    const pct = this.calculateStorageBytes() / this.getStorageLimitBytes();
-    if (pct < 0.70) return true;
-
-    const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
-    let changed = false;
-    templates.forEach(tmpl => {
-      if (!tmpl.ruleConfig) tmpl.ruleConfig = {};
-      const cur = tmpl.ruleConfig.maxMonths || 32;
-      if (cur > 1) {
-        tmpl.ruleConfig.maxMonths = Math.max(1, Math.floor(cur * 0.7));
-        changed = true;
-      }
-    });
-    if (!changed) return false;
-
-    const nonRec = this.state.transactions.filter(
-      t => !(t.status === 'estimated' && t.groupId)
-    );
-    this.state.transactions = [...nonRec, ...templates];
-    this.expandRecurringTemplates();
-    if (!this._flushState()) return false;
-  }
-  return this.calculateStorageBytes() / this.getStorageLimitBytes() < 0.85;
-}
   
   /* ============================================================
    PROFILES, BACKUP, THEME
@@ -972,58 +857,6 @@ collapseRecurringForStorage() {
     }
   }
   return out;
-}
-  
-expandRecurringTemplates() {
-  const templates = this.state.transactions.filter(
-    t => t.status === 'estimated' && t.isTemplate
-  );
-  if (!templates.length) return;              // nothing to do — fresh/legacy data
-
-  const nonRecurring = this.state.transactions.filter(
-    t => !(t.status === 'estimated' && t.groupId)
-  );
-  const out = [...nonRecurring];
-
-  templates.forEach(tmpl => {
-    const cfg      = tmpl.ruleConfig || { interval: 1, freq: 'months' };
-    const interval = Math.max(1, cfg.interval || 1);
-    const freq     = cfg.freq || 'months';
-    const endType  = cfg.endType || 'forever';
-    const endVal   = cfg.endVal;
-    let cur = new Date(tmpl.date + 'T00:00:00');
-
-    for (let i = 0; i < 120; i++) {           // hard cap so nothing can explode
-      if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
-      if (endType === 'count' && endVal && i >= endVal) break;
-
-      const dateStr = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
-      out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
-
-      if (freq === 'days')        cur.setDate(cur.getDate() + interval);
-      else if (freq === 'weeks')  cur.setDate(cur.getDate() + 7 * interval);
-      else if (freq === 'months') cur.setMonth(cur.getMonth() + interval);
-      else if (freq === 'years')  cur.setFullYear(cur.getFullYear() + interval);
-    }
-  });
-
-  this.state.transactions = out;
-}
-
-collapseRecurringTemplates() {
-  const seen = new Set();
-  const out  = [];
-  for (const t of this.state.transactions) {
-    if (t.status === 'estimated' && t.groupId) {
-      if (seen.has(t.groupId)) continue;      // drop duplicates
-      seen.add(t.groupId);
-      t.isTemplate = true;
-    } else {
-      delete t.isTemplate;
-    }
-    out.push(t);
-  }
-  this.state.transactions = out;
 }
 
   /* ============ STATE SAVING ============ */
@@ -2169,7 +2002,7 @@ saveProfiles(profiles) {
                 <div style="min-width:0;">
                   <div style="font-weight:700; font-size:1rem;">${this.escapeHtml(l.name)}</div>
                   <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-                    ${rate}% APR · ${term} yr · Filter: ${this.escapeHtml(l.paymentFilter || '—')}
+                    ${rate}% APR · ${term} yr · Filter: ${this.escapeHtml(l.paymentFilters ? l.paymentFilters.join(', ') : (l.paymentFilter || '—'))}
                   </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
@@ -2547,8 +2380,16 @@ saveProfiles(profiles) {
       minPayment: 0,
       escrow: 0,
       termYears: 30,
-      paymentFilter: ''
+      paymentFilters: []
     };
+
+    this._tempLoanFilters = [];
+    if (l.paymentFilters && Array.isArray(l.paymentFilters)) {
+      this._tempLoanFilters = [...l.paymentFilters];
+    } else if (l.paymentFilter && typeof l.paymentFilter === 'string') {
+      // Support older comma-separated values
+      this._tempLoanFilters = l.paymentFilter.split(',').map(s => s.trim()).filter(Boolean);
+    }
 
     const bal = parseFloat(l.balance) || 0;
     const rate = parseFloat(l.rate) || 0;
@@ -2611,10 +2452,25 @@ saveProfiles(profiles) {
             </div>
 
             <div>
-              <label class="stat-label">Payment Filter (matches transaction descriptions)</label>
-              <input type="text" id="loanFilter" value="${this.escapeHtml(l.paymentFilter || '')}" placeholder="e.g. usbank, MORTGAGE">
+              <label class="stat-label">Payment Filters (matches transaction descriptions)</label>
+              
+              <div id="loanFilterTags" style="display:flex; flex-wrap:wrap; gap:0.4rem; margin-bottom:0.5rem; min-height:26px;">
+                <!-- tags populated via JS -->
+              </div>
+
+              <div style="display:flex; gap:0.5rem;">
+                <input type="text" id="loanFilterInput" placeholder="Type custom text..." onkeydown="if(event.key==='Enter'){event.preventDefault();app.addLoanFilterFromInput();}" style="flex:1;">
+                <button type="button" class="btn btn-sm" onclick="app.addLoanFilterFromInput()">Add</button>
+              </div>
+
+              <div style="margin-top:0.75rem; background:var(--bg-base); border:1px solid var(--border-subtle); padding:0.6rem; border-radius:var(--radius-sm);">
+                <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">Click to add from recent transactions</div>
+                <div id="loanFilterSuggestions" style="display:flex; flex-wrap:wrap; gap:0.4rem; max-height:100px; overflow-y:auto;">
+                  <!-- suggestions populated via JS -->
+                </div>
+              </div>
               <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px;">
-                Used to auto-reduce the loan balance when matching payments appear in your transactions.
+                Used to auto-reduce the loan balance when matching payments appear in your transactions. Matches partial text.
               </div>
             </div>
           </div>
@@ -2627,6 +2483,82 @@ saveProfiles(profiles) {
           </div>
         </div>
       </div>`);
+
+    this.renderLoanFiltersUI();
+  }
+
+  renderLoanFiltersUI() {
+    const tagsContainer = document.getElementById('loanFilterTags');
+    const suggestionsContainer = document.getElementById('loanFilterSuggestions');
+    if (!tagsContainer || !suggestionsContainer) return;
+
+    // Render Tags
+    tagsContainer.innerHTML = '';
+    if (this._tempLoanFilters.length === 0) {
+      tagsContainer.innerHTML = `<span style="font-size:0.75rem; color:var(--text-dim);">No filters added. Loan balance won't auto-reduce.</span>`;
+    } else {
+      this._tempLoanFilters.forEach(f => {
+        const span = document.createElement('span');
+        span.style.cssText = 'display:inline-flex; align-items:center; gap:0.3rem; background:var(--bg-elevated); border:1px solid var(--border-subtle); padding:0.2rem 0.5rem; border-radius:12px; font-size:0.75rem;';
+        span.innerHTML = `${this.escapeHtml(f)} <button type="button" style="background:none; border:none; color:var(--accent-negative); cursor:pointer; font-weight:bold; padding:0; line-height:1; font-size:0.9rem;">×</button>`;
+        span.querySelector('button').onclick = () => {
+          this._tempLoanFilters = this._tempLoanFilters.filter(x => x !== f);
+          this.renderLoanFiltersUI();
+        };
+        tagsContainer.appendChild(span);
+      });
+    }
+
+    // Render Suggestions
+    const seen = new Set();
+    const suggestions = [];
+    // Get unique descriptions from recent negative transactions
+    this.state.transactions.forEach(t => {
+      if (t.amount < 0 && t.description) {
+        const desc = t.description.trim();
+        const upper = desc.toUpperCase();
+        if (!seen.has(upper) && !this._tempLoanFilters.some(f => upper.includes(f.toUpperCase()))) {
+          seen.add(upper);
+          suggestions.push(desc);
+        }
+      }
+    });
+    
+    const recent = suggestions.slice(-30).reverse();
+
+    suggestionsContainer.innerHTML = '';
+    if (recent.length === 0) {
+      suggestionsContainer.innerHTML = `<span style="font-size:0.7rem; color:var(--text-dim);">No recent expense descriptions found.</span>`;
+    } else {
+      recent.forEach(s => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'badge badge-posted';
+        btn.style.cssText = 'cursor:pointer; font-size:0.7rem; text-transform:none; border:1px dashed var(--border-subtle); transition:var(--transition); padding:0.2rem 0.5rem;';
+        btn.textContent = `+ ${s}`;
+        btn.onmouseover = () => { btn.style.borderColor='var(--accent-primary)'; btn.style.color='var(--accent-primary)'; };
+        btn.onmouseout = () => { btn.style.borderColor='var(--border-subtle)'; btn.style.color='var(--text-muted)'; };
+        btn.onclick = () => {
+          if (!this._tempLoanFilters.includes(s)) {
+            this._tempLoanFilters.push(s);
+            this.renderLoanFiltersUI();
+          }
+        };
+        suggestionsContainer.appendChild(btn);
+      });
+    }
+  }
+
+  addLoanFilterFromInput() {
+    const input = document.getElementById('loanFilterInput');
+    if (!input) return;
+    const val = input.value.trim();
+    if (!val) return;
+    if (!this._tempLoanFilters.includes(val)) {
+      this._tempLoanFilters.push(val);
+    }
+    input.value = '';
+    this.renderLoanFiltersUI();
   }
 
   saveLoan() {
@@ -2636,13 +2568,13 @@ saveProfiles(profiles) {
     const term = parseInt(document.getElementById('loanTerm').value) || 30;
     const pi = parseFloat(document.getElementById('loanPI').value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
-    const filter = document.getElementById('loanFilter').value.trim();
     if (!name || isNaN(bal) || isNaN(rate)) { alert('Please fill in name, balance, and rate.'); return; }
     const minPayment = pi + esc; // total
     this.state.loans.push({
       id: `loan_${Date.now()}`,
       name, balance: bal, initialBalance: bal,
-      rate, minPayment, escrow: esc, termYears: term, paymentFilter: filter
+      rate, minPayment, escrow: esc, termYears: term, 
+      paymentFilters: this._tempLoanFilters || []
     });
     this.recalculateLoanBalances();
     this.saveState();
@@ -2663,7 +2595,8 @@ saveProfiles(profiles) {
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
     l.minPayment = pi + esc;
     l.escrow = esc;
-    l.paymentFilter = document.getElementById('loanFilter').value.trim();
+    l.paymentFilters = this._tempLoanFilters || [];
+    delete l.paymentFilter; // Clean up old property
     // Reset manual override so it re-derives from the new saved values
     this._piManual = false;
     this.saveState();
@@ -2685,12 +2618,22 @@ saveProfiles(profiles) {
   recalculateLoanBalances() {
     if (!this.state.loans || !this.state.loans.length) return;
     this.state.loans.forEach(loan => {
-      if (!loan.paymentFilter) return;
-      const filter = loan.paymentFilter.toUpperCase();
+      let filters = [];
+      if (Array.isArray(loan.paymentFilters)) {
+        filters = loan.paymentFilters;
+      } else if (loan.paymentFilter && typeof loan.paymentFilter === 'string') {
+        filters = [loan.paymentFilter];
+      }
+      
+      if (!filters.length) return;
+      
+      const upperFilters = filters.map(f => f.toUpperCase());
+      
       const payments = this.state.transactions.filter(t =>
         t.status !== 'estimated' && t.amount < 0 &&
-        t.description && t.description.toUpperCase().includes(filter)
+        t.description && upperFilters.some(f => t.description.toUpperCase().includes(f))
       );
+      
       if (!payments.length) return;
       payments.sort((a, b) => new Date(a.date) - new Date(b.date));
       let bal = parseFloat(loan.initialBalance || loan.balance) || 0;
