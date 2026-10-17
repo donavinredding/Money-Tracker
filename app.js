@@ -458,13 +458,21 @@ deleteProfile(name) {
     this.showToast('Cannot delete the active profile. Switch to another first.');
     return;
   }
-  if (!confirm(`Delete profile "${name}"? This cannot be undone.`)) return;
+  
+  // First Confirmation
+  if (!confirm(`Are you sure you want to delete the profile "${name}"?`)) return;
+  
+  // Second Confirmation
+  if (!confirm(`DOUBLE CONFIRMATION:\nThis will permanently erase all data, transactions, and settings in the profile "${name}".\n\nAre you absolutely sure?`)) return;
+
   const profiles = this.loadProfiles();
   delete profiles[name];
+  
   if (this.saveProfiles(profiles)) {
     this.showToast(`Deleted "${name}"`);
   }
-  this.openSettingsModal('home'); // Changed from 'profiles'
+  
+  this.openSettingsModal('home'); 
 }
 
 exportProfile(name) {
@@ -592,29 +600,32 @@ openSettingsModal(screen = 'home') {
 
     // --- HOME MENU ---
   if (screen === 'home') {
-    // Get available profiles and build the dropdown
     const profileNames = Object.keys(profiles).sort();
-    const profileOptions = profileNames.map(p => 
-      `<option value="${p}" ${p === this.activeProfile ? 'selected' : ''}>${this.escapeHtml(p)}</option>`
-    ).join('');
-
+    
     body = `
       <!-- Profile Hero -->
       <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
-        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-          <div>
-            <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
-            <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
-            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
-          </div>
-        </div>
+        <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
+        <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
         
-        <!-- Switch Profile Dropdown -->
-        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
-          <label class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">SWITCH PROFILE</label>
-          <select onchange="app.switchProfile(this.value)" style="background:var(--bg-base); border:1px solid var(--accent-primary); color:var(--text-main); font-weight:600; padding:0.6rem 0.75rem; border-radius:var(--radius-sm); width:100%; cursor:pointer;">
-            ${profileOptions}
-          </select>
+        <!-- Profile Manager -->
+        <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+          <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">MANAGE PROFILES</div>
+          <div style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y:auto; padding-right:4px;">
+            ${profileNames.map(p => `
+              <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid ${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--border-subtle)'};">
+                <span style="font-weight:600; font-size:0.85rem; color:${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--text-main)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:50%;">${this.escapeHtml(p)}</span>
+                ${p === this.activeProfile 
+                  ? `<span class="badge badge-posted" style="background:rgba(0,229,255,0.1); color:var(--accent-primary);">ACTIVE</span>` 
+                  : `<div style="display:flex; gap:0.4rem;">
+                       <button class="btn btn-sm" onclick="app.switchProfile('${p}')">Switch</button>
+                       <button class="btn btn-sm btn-danger" onclick="app.deleteProfile('${p}')" title="Delete Profile">🗑</button>
+                     </div>`
+                }
+              </div>
+            `).join('')}
+          </div>
         </div>
       </div>
 
