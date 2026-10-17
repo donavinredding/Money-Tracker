@@ -590,14 +590,32 @@ openSettingsModal(screen = 'home') {
 
   let body = '';
 
-  // --- HOME MENU ---
+    // --- HOME MENU ---
   if (screen === 'home') {
+    // Get available profiles and build the dropdown
+    const profileNames = Object.keys(profiles).sort();
+    const profileOptions = profileNames.map(p => 
+      `<option value="${p}" ${p === this.activeProfile ? 'selected' : ''}>${this.escapeHtml(p)}</option>`
+    ).join('');
+
     body = `
       <!-- Profile Hero -->
       <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
-        <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
-        <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
+        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+          <div>
+            <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
+            <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
+            <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
+          </div>
+        </div>
+        
+        <!-- Switch Profile Dropdown -->
+        <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
+          <label class="stat-label" style="font-size:0.65rem; margin-bottom:0.4rem;">SWITCH PROFILE</label>
+          <select onchange="app.switchProfile(this.value)" style="background:var(--bg-base); border:1px solid var(--accent-primary); color:var(--text-main); font-weight:600; padding:0.6rem 0.75rem; border-radius:var(--radius-sm); width:100%; cursor:pointer;">
+            ${profileOptions}
+          </select>
+        </div>
       </div>
 
       <!-- Vertical Menu -->
