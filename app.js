@@ -1032,6 +1032,8 @@ class MoneyTrackerApp {
           </div>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
+            <button class="btn btn-sm" data-action="forceApplyRules" title="Force apply rules to ALL rows, bypassing locks">🪄 Reapply Rules</button>
+            <button class="btn btn-sm" data-action="unlockAll" title="Unlock all rows so rules can apply">🔓 Unlock All</button>
             <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
             <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
             <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
@@ -1803,6 +1805,35 @@ class MoneyTrackerApp {
         if (rule.category) t.category = rule.category;
       }
     });
+  }
+
+    /* Force rules to apply even if locked */
+  forceApplyRules() {
+    let count = 0;
+    this.state.transactions.forEach(t => {
+      if (!t.description) return;
+      const rule = this._findMatchingRule(t.description, t.nickname);
+      if (rule) {
+        let changed = false;
+        if (rule.nickname && t.nickname !== rule.nickname) { t.nickname = rule.nickname; changed = true; }
+        if (rule.category && t.category !== rule.category) { t.category = rule.category; changed = true; }
+        if (changed) { t.locked = false; count++; }
+      }
+    });
+    this.saveState();
+    this.renderCheckingTable();
+    this.showToast(`Reapplied rules and unlocked ${count} transactions`);
+  }
+
+  /* Unlock everything */
+  unlockAll() {
+    let count = 0;
+    this.state.transactions.forEach(t => {
+      if (t.locked) { t.locked = false; count++; }
+    });
+    this.saveState();
+    this.renderCheckingTable();
+    this.showToast(`Unlocked ${count} transactions. Rules will apply on next edit.`);
   }
 
   cleanSpotify() {
@@ -3481,7 +3512,7 @@ class MoneyTrackerApp {
   /* ============================================================
      RULES MODAL — priority + exclude UI
      ============================================================ */
-  openRulesModal() {
+    openRulesModal() {
     const rules = this.state.customRules || [];
     const editingIndex = this.editingRuleIndex;
     const editRule = (editingIndex != null && rules[editingIndex]) ? rules[editingIndex] : null;
@@ -3493,20 +3524,22 @@ class MoneyTrackerApp {
     const matchType = editRule?.matchType || 'contains';
 
     const ruleRow = (r, i) => `
-      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
-        <div style="display:flex; align-items:flex-start; gap:0.5rem; min-width:0; flex:1;">
-          <span class="mono" style="font-size:0.7rem; color:var(--text-muted); background:var(--bg-elevated); padding:2px 6px; border-radius:4px; flex-shrink:0;">#${i + 1}</span>
-          <div style="min-width:0;">
-            <span class="badge badge-posted" style="font-size:0.6rem;">${matchLabels[r.matchType] || 'Contains'}</span>
-            <strong style="font-family:var(--font-mono); font-size:0.8rem;">${this.escapeHtml(r.searchPattern)}</strong>
-            ${r.doesNotContain ? `<span class="badge" style="background:rgba(255,61,113,0.15); color:var(--accent-negative); border:1px solid rgba(255,61,113,0.4); margin-left:4px; font-size:0.6rem;">≠ ${this.escapeHtml(r.doesNotContain)}</span>` : ''}
-            ${r.nickname ? ` → <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span>` : ''}
-            ${r.category ? ` <span class="badge badge-posted" style="margin-left:4px;">${this.escapeHtml(r.category)}</span>` : ''}
+      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
+        <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
+          <span class="mono" style="font-size:0.75rem; color:var(--text-muted); background:var(--bg-elevated); padding:2px 6px; border-radius:4px; flex-shrink:0;">#${i + 1}</span>
+          <div style="min-width:0; line-height: 1.4;">
+            <span class="badge badge-posted" style="font-size:0.6rem; background:var(--bg-hover); border:1px solid var(--border-subtle);">${matchLabels[r.matchType] || 'Contains'}</span>
+            <strong style="font-family:var(--font-mono); font-size:0.8rem; margin-left:4px;">${this.escapeHtml(r.searchPattern)}</strong>
+            ${r.doesNotContain ? `<span class="badge" style="background:rgba(255,61,113,0.1); color:var(--accent-negative); border:1px solid rgba(255,61,113,0.3); margin-left:6px; font-size:0.65rem;">≠ ${this.escapeHtml(r.doesNotContain)}</span>` : ''}
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
+              ${r.nickname ? `Nickname: <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span>` : ''}
+              ${r.category ? ` &middot; Category: <span class="badge badge-posted" style="font-size:0.65rem;">${this.escapeHtml(r.category)}</span>` : ''}
+            </div>
           </div>
         </div>
         <div style="display:flex; gap:2px; flex-shrink:0;">
-          <button class="btn btn-sm" data-action="moveRuleUp" data-index="${i}" ${i === 0 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move up (higher priority)">↑</button>
-          <button class="btn btn-sm" data-action="moveRuleDown" data-index="${i}" ${i === rules.length - 1 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move down (lower priority)">↓</button>
+          <button class="btn btn-sm" data-action="moveRuleUp" data-index="${i}" ${i === 0 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move up">↑</button>
+          <button class="btn btn-sm" data-action="moveRuleDown" data-index="${i}" ${i === rules.length - 1 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move down">↓</button>
           <button class="btn btn-sm" data-action="editRule" data-index="${i}" title="Edit rule">✏️</button>
           <button class="btn btn-sm btn-danger" data-action="deleteRule" data-index="${i}" title="Delete rule">🗑️</button>
         </div>
@@ -3515,24 +3548,26 @@ class MoneyTrackerApp {
 
     this.openModal(`
       <div class="modal-overlay active">
-        <div class="modal" style="max-width:780px;">
+        <div class="modal" style="max-width:750px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h2 style="font-size:1.2rem; font-weight:700;">⚙ Active Rules</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
 
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; padding:0.6rem 0.85rem; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); line-height:1.5;">
-            <strong style="color:var(--accent-primary);">Priority order — first match wins.</strong>
-            Rules are checked top-to-bottom. Use <strong>↑ / ↓</strong> to reorder.
-            Use <strong>Does Not Contain</strong> to skip a rule when the description has an unwanted phrase
-            (e.g. "Contains DONUT, Does Not Contain ROUNDUP").
-          </div>
+          <details style="margin-bottom:1rem; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); padding:0.5rem 0.85rem;">
+            <summary style="font-size:0.8rem; font-weight:600; color:var(--accent-primary); cursor:pointer; user-select:none;">💡 How Priority & "Does Not Contain" works</summary>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem; line-height:1.5;">
+              Rules check top-to-bottom. The <strong>first match wins</strong>. Use the ↑/↓ buttons to reorder.<br>
+              Use <strong>Does Not Contain</strong> to block a rule if the description has an unwanted phrase. (e.g. To stop "Roundup * SONIC" from becoming Dining, add "ROUNDUP" to the Does Not Contain box for the SONIC rule, and put the ROUNDUP rule at the bottom).
+            </div>
+          </details>
 
           <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
             <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">${editRule ? '✏️ EDIT RULE' : '+ ADD NEW RULE'}</div>
             <input type="hidden" id="editingRuleIndex" value="${editingIndex != null ? editingIndex : ''}">
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
-              <div><label class="stat-label">Search Text</label><input type="text" id="newRuleSearch" value="${editRule ? this.escapeHtml(editRule.searchPattern) : ''}" placeholder="e.g. DONUT"></div>
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+              <div><label class="stat-label">Search Text</label><input type="text" id="newRuleSearch" value="${editRule ? this.escapeHtml(editRule.searchPattern) : ''}" placeholder="e.g. TMOBILE"></div>
               <div>
                 <label class="stat-label">Match Type</label>
                 <select id="newRuleMatchType">
@@ -3541,18 +3576,17 @@ class MoneyTrackerApp {
                   ).join('')}
                 </select>
               </div>
-            </div>
-            <div style="margin-bottom:0.5rem;">
-              <label class="stat-label">Does Not Contain (Optional)</label>
-              <input type="text" id="newRuleExclude" value="${editRule ? this.escapeHtml(editRule.doesNotContain || '') : ''}" placeholder="e.g. ROUNDUP — blocks this rule if the description contains this phrase">
-              <div style="font-size:0.65rem; color:var(--text-dim); margin-top:3px;">
-                Skip this rule whenever the description (or nickname) contains this phrase.
+              <div>
+                <label class="stat-label">Does Not Contain (Optional)</label>
+                <input type="text" id="newRuleExclude" value="${editRule ? this.escapeHtml(editRule.doesNotContain || '') : ''}" placeholder="e.g. ROUNDUP">
               </div>
             </div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+            
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.75rem;">
               <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname" value="${editRule ? this.escapeHtml(editRule.nickname || '') : ''}"></div>
               <div><label class="stat-label">Category (Optional)</label><select id="newRuleCategory">${catOpts}</select></div>
             </div>
+            
             <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
               ${editRule ? `<button class="btn btn-sm" data-action="cancelRuleEdit">Cancel</button>` : ''}
               <button class="btn btn-primary btn-sm" data-action="addNewRule">${editRule ? 'Update Rule' : 'Add Rule'}</button>
@@ -3562,7 +3596,7 @@ class MoneyTrackerApp {
           <div>
             <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">
               Saved Rules
-              <span style="font-size:0.7rem; font-weight:400; color:var(--text-muted);">(priority order — first match wins)</span>
+              <span style="font-size:0.7rem; font-weight:400; color:var(--text-muted);">(first match wins)</span>
             </h3>
             ${rules.length === 0
               ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>'
