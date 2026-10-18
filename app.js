@@ -726,6 +726,11 @@ class MoneyTrackerApp {
 
     const s = profiles[activeName].state;
     s.vaults = s.vaults || [];
+    s.vaults.forEach(v => {
+      if (v.startingBalance === undefined) {
+        v.startingBalance = parseFloat(v.balance) || 0; // Anchor existing vaults
+      }
+    });
     s.pendingItems = s.pendingItems || [];
     s.transactions = s.transactions || [];
     s.scenarios = s.scenarios || [];
@@ -1006,9 +1011,10 @@ class MoneyTrackerApp {
           <div class="search-box">
             <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}">
           </div>
-          <div style="display:flex; gap:0.5rem;">
+          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
             <button class="btn btn-sm" data-action="toggleDensity">Toggle Density</button>
             <button class="btn btn-sm" data-action="openMassEditModal">Mass Edit</button>
+            <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING">📥 Import CSV</button>
             <button class="btn btn-sm btn-primary" data-action="openAddPendingModal">+ Add Pending</button>
           </div>
         </div>
@@ -1037,12 +1043,18 @@ class MoneyTrackerApp {
         <div class="card" style="margin-bottom:1rem;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Vault Balances</h3>
-            <button class="btn btn-sm btn-primary" data-action="openVaultModal">+ New Vault</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-sm" data-action="recalculateVaultsAndSync" title="Scans history and fixes balances">🔄 Sync Vaults</button>
+              <button class="btn btn-sm btn-primary" data-action="openVaultModal">+ New Vault</button>
+            </div>
           </div>
           <div id="vaultList"></div>
         </div>
         <div class="card">
-          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Savings Ledger</h3>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h3 style="font-size:1rem; font-weight:600;">Savings Ledger</h3>
+            <button class="btn btn-sm" data-action="openImportWizard" data-account="SAVINGS">📥 Import CSV</button>
+          </div>
           <div class="table-container" style="border:none;">
             <table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
             <tbody id="savingsTableBody"></tbody></table>
@@ -1632,7 +1644,62 @@ class MoneyTrackerApp {
     this.renderCharts();
   }
 
+  recalculateVaultBalances() {
+    if (!this.state.vaults) return;
+    
+    // 1. Reset all vault balances to their starting balance
+    this.state.vaults.forEach(v => {
+      if (v.startingBalance === undefined) {
+        v.startingBalance = parseFloat(v.balance) || 0;
+      }
+      v.balance = parseFloat(v.startingBalance);
+    });
+
+    const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+
+    // 2. Loop through all posted transactions
+    this.state.transactions.filter(t => t.status !== 'estimated').forEach(t => {
+      const desc = t.description || '';
+      let vaultName = null;
+      let amt = 0;
+
+      const match = desc.match(/^(To|From)\s+(.+?)\s+Vault/i);
+      if (match) {
+        vaultName = match[2].trim();
+        amt = match[1].toUpperCase() === 'TO' ? Math.abs(t.amount) : -Math.abs(t.amount);
+      } 
+      else if (desc.startsWith('Transfer to Vault: ')) {
+        vaultName = desc.replace('Transfer to Vault: ', '').trim();
+        amt = Math.abs(t.amount);
+      } 
+      else if (desc.startsWith('Transfer from Vault: ')) {
+        vaultName = desc.replace('Transfer from Vault: ', '').trim();
+        amt = -Math.abs(t.amount);
+      }
+
+      if (vaultName && amt !== 0) {
+        const v = this.state.vaults.find(v => norm(v.name) === norm(vaultName));
+        if (v) {
+          v.balance += amt;
+        }
+      }
+    });
+
+    // 3. Ensure no vault ever goes below $0.00
+    this.state.vaults.forEach(v => {
+      if (v.balance < 0) v.balance = 0;
+    });
+  }
+
+  recalculateVaultsAndSync() {
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('savings');
+    this.showToast('✓ Vaults synced with transaction history');
+  }
+
   recalculateBalances() {
+    this.recalculateVaultBalances();
     ['CHECKING', 'SAVINGS'].forEach(acc => {
       let running = 0;
       const txs = this.state.transactions.filter(t => t.account === acc && t.status !== 'estimated')
@@ -2325,7 +2392,7 @@ class MoneyTrackerApp {
     });
   }
 
-    _openLoanEditor(loan) {
+  _openLoanEditor(loan) {
     const isEdit = !!loan;
     const l = loan || {
       id: '',
@@ -2340,7 +2407,6 @@ class MoneyTrackerApp {
       paymentFilter: ''
     };
     
-    // Migrate older loans
     if (l.term === undefined && l.termYears !== undefined) {
       l.term = l.termYears;
       l.termUnit = 'years';
@@ -2480,7 +2546,7 @@ class MoneyTrackerApp {
       </div>`);
   }
 
-    saveLoan() {
+  saveLoan() {
     const name = document.getElementById('loanName').value.trim();
     const bal = parseFloat(document.getElementById('loanBalance').value) || 0;
     const balDate = document.getElementById('loanBalanceDate').value;
@@ -2507,7 +2573,7 @@ class MoneyTrackerApp {
     this.showToast(`Loan "${name}" added`);
   }
 
-    saveEditedLoan() {
+  saveEditedLoan() {
     const id = document.getElementById('editLoanId').value;
     const l = this.state.loans.find(x => x.id === id);
     if (!l) return;
@@ -2543,7 +2609,7 @@ class MoneyTrackerApp {
     this.showToast('Loan deleted');
   }
 
-    recalculateLoanBalances() {
+  recalculateLoanBalances() {
     if (!this.state.loans || !this.state.loans.length) return;
     this.state.loans.forEach(loan => {
       let filters = loan.paymentFilter;
@@ -3404,7 +3470,7 @@ class MoneyTrackerApp {
     this.openRulesModal();
   }
 
-  openImportWizard() {
+  openImportWizard(btn) {
     this.stagedFiles = [];
     this.openModal(`
       <div class="modal-overlay active">
@@ -3415,15 +3481,11 @@ class MoneyTrackerApp {
           </div>
           <div style="border:2px dashed var(--border-glow); padding:2rem; text-align:center; border-radius:var(--radius-md); cursor:pointer;" data-action="triggerCsvUpload">
             <p>Click to browse CSV files</p>
-            <p style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem;">Format: Date, Description, Amount, Balance</p>
+            <p style="font-size:0.75rem; color:var(--text-dim); margin-top:0.5rem;">Standard and SOFI formats supported.</p>
           </div>
           <input type="file" id="csvInput" multiple accept=".csv" style="display:none">
-          <div style="margin-top:1rem;">
-            <label class="stat-label">Account Target</label>
-            <select id="importAccountTarget">
-              <option value="CHECKING">Checking</option>
-              <option value="SAVINGS">Savings</option>
-            </select>
+          <div style="margin-top:1rem; background:var(--bg-base); padding:0.75rem; border-radius:var(--radius-sm); font-size:0.8rem; color:var(--text-muted);">
+            <strong>🤖 Smart Import:</strong> The app will automatically route files to Checking or Savings based on the filename (e.g., <em>"checking.csv"</em> or <em>"savings.csv"</em>).
           </div>
           <div id="importPreview" style="margin-top:1rem;"></div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
@@ -3452,26 +3514,69 @@ class MoneyTrackerApp {
 
   commitImport() {
     if (!this.stagedFiles.length) return;
-    const target = document.getElementById('importAccountTarget').value;
     let count = 0, pending = this.stagedFiles.length;
+
     this.stagedFiles.forEach(file => {
+      // Auto-detect account based on filename
+      const fileName = file.name.toLowerCase();
+      let target = 'CHECKING';
+      if (fileName.includes('saving')) target = 'SAVINGS';
+      
       const reader = new FileReader();
       reader.onload = (e) => {
         const lines = e.target.result.split('\n');
+        
         lines.forEach((line, idx) => {
-          if (idx === 0 || !line.trim()) return;
-          const parts = line.split(',');
+          if (idx === 0 || !line.trim()) return; // Skip header/empty
+          
+          // Regex to split by comma but ignore commas inside quotes
+          const parts = [];
+          let current = '';
+          let inQuotes = false;
+          for (let i = 0; i < line.length; i++) {
+            const char = line[i];
+            if (char === '"') inQuotes = !inQuotes;
+            else if (char === ',' && !inQuotes) { parts.push(current); current = ''; }
+            else current += char;
+          }
+          parts.push(current);
+          
           if (parts.length >= 3) {
             const date = parts[0].replace(/"/g, '').trim();
             let desc = parts[1].replace(/"/g, '').trim();
-            const amt = parseFloat(parts[2].replace(/"/g, '').trim());
-            let bal = parts.length >= 4 ? parseFloat(parts[3].replace(/"/g, '').trim()) : 0;
-            if (isNaN(bal)) bal = 0;
-            if (desc.toUpperCase().startsWith('SPOTIFY')) desc = 'Spotify';
+            let amt = NaN;
+            let bal = 0;
+            
+            // Try standard format (Date, Desc, Amount, Balance)
+            let testAmt = parseFloat(parts[2].replace(/"/g, '').trim());
+            
+            if (!isNaN(testAmt)) {
+              amt = testAmt;
+              if (parts.length >= 4) bal = parseFloat(parts[3].replace(/"/g, '').trim()) || 0;
+            } 
+            // Try Sofi/Extended format (Date, Desc, Type, Amount, Balance, Status)
+            else if (parts.length >= 4) {
+              amt = parseFloat(parts[3].replace(/"/g, '').trim());
+              if (parts.length >= 5) bal = parseFloat(parts[4].replace(/"/g, '').trim()) || 0;
+            }
+            
             if (!isNaN(amt) && date) {
+              // Deduplication check: skip if same date, amount, and description already exists
+              const exists = this.state.transactions.some(t => 
+                t.account === target && 
+                t.date === date && 
+                Math.abs(t.amount - amt) < 0.01 && 
+                t.description === desc
+              );
+              
+              if (exists) return; // Skip duplicate
+
+              if (desc.toUpperCase().startsWith('SPOTIFY')) desc = 'Spotify';
+              
               let cat = 'Miscellaneous', flow = 'Flexible Spending';
               const rule = CATEGORY_RULES.find(r => desc.toUpperCase().includes(r.contains));
               if (rule) { cat = rule.category; flow = rule.flow; }
+              
               this.state.transactions.push({
                 id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                 account: target, date, description: desc,
@@ -3482,12 +3587,13 @@ class MoneyTrackerApp {
             }
           }
         });
+        
         pending--;
         if (pending === 0) {
           this.recalculateBalances();
           this.saveState();
           this.closeModal();
-          this.showToast(`Imported ${count} transactions`);
+          this.showToast(`Imported ${count} new transactions`);
           this.renderTabContent(this.currentTab);
         }
       };
@@ -3557,9 +3663,10 @@ class MoneyTrackerApp {
 
   saveVault() {
     const name = document.getElementById('vaultName').value.trim();
-    const bal = parseFloat(document.getElementById('vaultInitialBalance').value) || 0;
+    // Prevent negative starting balances
+    const bal = Math.max(0, parseFloat(document.getElementById('vaultInitialBalance').value) || 0);
     if (!name) return;
-    this.state.vaults.push({ id: `v_${Date.now()}`, name, balance: bal });
+    this.state.vaults.push({ id: `v_${Date.now()}`, name, balance: bal, startingBalance: bal });
     this.saveState();
     this.closeModal();
     this.renderTabContent(this.currentTab);
@@ -3606,7 +3713,6 @@ class MoneyTrackerApp {
       category: 'Transfers', flow: 'Internal Transfer',
       amount: -amount, balance: 0, status: 'POSTED'
     });
-    vault.balance += amount;
     this.recalculateBalances();
     this.saveState();
     this.closeModal();
@@ -3637,12 +3743,45 @@ class MoneyTrackerApp {
       </div>`);
   }
 
-  saveEditedVault() {
+   saveEditedVault() {
     const id = document.getElementById('editVaultId').value;
     const name = document.getElementById('editVaultName').value.trim();
-    const bal = parseFloat(document.getElementById('editVaultBalance').value) || 0;
+    // Prevent negative manual entry
+    const bal = Math.max(0, parseFloat(document.getElementById('editVaultBalance').value) || 0);
     const v = this.state.vaults.find(x => x.id === id);
-    if (v) { v.name = name; v.balance = bal; }
+    
+    if (v) { 
+      // Calculate the sum of all transactions for this vault
+      let txSum = 0;
+      const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
+      const vNorm = norm(name);
+      
+      this.state.transactions.filter(t => t.status !== 'estimated').forEach(t => {
+        const desc = t.description || '';
+        let matchedName = null;
+        let amt = 0;
+        const match = desc.match(/^(To|From)\s+(.+?)\s+Vault/i);
+        if (match) {
+          matchedName = match[2].trim();
+          amt = match[1].toUpperCase() === 'TO' ? Math.abs(t.amount) : -Math.abs(t.amount);
+        } else if (desc.startsWith('Transfer to Vault: ')) {
+          matchedName = desc.replace('Transfer to Vault: ', '').trim();
+          amt = Math.abs(t.amount);
+        } else if (desc.startsWith('Transfer from Vault: ')) {
+          matchedName = desc.replace('Transfer from Vault: ', '').trim();
+          amt = -Math.abs(t.amount);
+        }
+        
+        if (matchedName && norm(matchedName) === vNorm) {
+          txSum += amt;
+        }
+      });
+      
+      // Adjust starting balance so the new balance matches exactly what was typed
+      v.startingBalance = bal - txSum;
+      v.name = name; 
+      v.balance = bal;
+    }
     this.saveState();
     this.closeModal();
     this.renderTabContent(this.currentTab);
