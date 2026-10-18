@@ -2325,7 +2325,7 @@ class MoneyTrackerApp {
     });
   }
 
-  _openLoanEditor(loan) {
+    _openLoanEditor(loan) {
     const isEdit = !!loan;
     const l = loan || {
       id: '',
@@ -2345,8 +2345,11 @@ class MoneyTrackerApp {
       l.term = l.termYears;
       l.termUnit = 'years';
     }
+    if (!l.balanceAsOf) {
+      l.balanceAsOf = new Date().toISOString().split('T')[0];
+    }
 
-    const bal = parseFloat(l.balance) || 0;
+    const bal = parseFloat(l.initialBalance || l.balance) || 0;
     const rate = parseFloat(l.rate) || 0;
     const escrow = parseFloat(l.escrow) || 0;
     const totalPmt = parseFloat(l.minPayment) || 0;
@@ -2395,27 +2398,35 @@ class MoneyTrackerApp {
               <label class="stat-label">Loan Name</label>
               <input type="text" id="loanName" value="${this.escapeHtml(l.name)}" placeholder="e.g. Mortgage, Car Loan">
             </div>
+            
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
               <div>
-                <label class="stat-label">Current Balance ($)</label>
+                <label class="stat-label">Balance ($)</label>
                 <input type="number" step="0.01" id="loanBalance" value="${bal.toFixed(2)}">
               </div>
+              <div>
+                <label class="stat-label">Balance As Of</label>
+                <input type="date" id="loanBalanceDate" value="${l.balanceAsOf}">
+              </div>
+            </div>
+            <div style="font-size:0.65rem; color:var(--text-dim); margin-top:-0.25rem; line-height:1.3;">
+              Enter your current balance and leave the date as today to only track future payments. Or enter your original loan amount and change the date to the loan's start date to calculate the current balance from your history.
+            </div>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin-top:0.25rem;">
               <div>
                 <label class="stat-label">Interest Rate (%)</label>
                 <input type="number" step="0.01" id="loanRate" value="${rate}">
               </div>
-            </div>
-            <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.75rem;">
               <div>
                 <label class="stat-label">Term</label>
-                <input type="number" id="loanTerm" value="${term}">
-              </div>
-              <div>
-                <label class="stat-label">Unit</label>
-                <select id="loanTermUnit">
-                  <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
-                  <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
-                </select>
+                <div style="display:flex; gap:0.5rem;">
+                  <input type="number" id="loanTerm" value="${term}" style="flex:1;">
+                  <select id="loanTermUnit" style="width:90px;">
+                    <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
+                    <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
+                  </select>
+                </div>
               </div>
             </div>
 
@@ -2425,16 +2436,10 @@ class MoneyTrackerApp {
                 <div>
                   <label class="stat-label">Principal &amp; Interest ($)</label>
                   <input type="number" step="0.01" id="loanPI" value="${pi.toFixed(2)}">
-                  <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px; line-height:1.3;">
-                    Pays down the loan
-                  </div>
                 </div>
                 <div>
                   <label class="stat-label">Escrow ($)</label>
                   <input type="number" step="0.01" id="loanEscrow" value="${escrow.toFixed(2)}">
-                  <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px; line-height:1.3;">
-                    Taxes &amp; insurance
-                  </div>
                 </div>
               </div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
@@ -2462,9 +2467,6 @@ class MoneyTrackerApp {
               <div id="loanBillList" style="max-height: 160px; overflow-y: auto; background: var(--bg-base); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 0.25rem 0.5rem;">
                 ${billCheckboxes || '<div style="color:var(--text-muted); font-size:0.8rem; padding:0.5rem;">No "Bills and Utilities" transactions found.</div>'}
               </div>
-              <div style="font-size:0.65rem; color:var(--text-dim); margin-top:0.4rem;">
-                Select one or more descriptions. The loan balance will auto-reduce when matching payments occur.
-              </div>
             </div>
           </div>
           <div style="display:flex; justify-content:${isEdit ? 'space-between' : 'flex-end'}; gap:0.5rem; margin-top:1.5rem;">
@@ -2478,9 +2480,10 @@ class MoneyTrackerApp {
       </div>`);
   }
 
-  saveLoan() {
+    saveLoan() {
     const name = document.getElementById('loanName').value.trim();
-    const bal = parseFloat(document.getElementById('loanBalance').value);
+    const bal = parseFloat(document.getElementById('loanBalance').value) || 0;
+    const balDate = document.getElementById('loanBalanceDate').value;
     const rate = parseFloat(document.getElementById('loanRate').value);
     const term = parseInt(document.getElementById('loanTerm').value) || 30;
     const termUnit = document.getElementById('loanTermUnit').value;
@@ -2490,11 +2493,11 @@ class MoneyTrackerApp {
     
     const checkedBoxes = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
     
-    if (!name || isNaN(bal) || isNaN(rate)) { alert('Please fill in name, balance, and rate.'); return; }
+    if (!name || isNaN(rate)) { alert('Please fill in name and rate.'); return; }
     const minPayment = pi + esc;
     this.state.loans.push({
       id: `loan_${Date.now()}`,
-      name, balance: bal, initialBalance: bal,
+      name, balance: bal, initialBalance: bal, balanceAsOf: balDate,
       rate, minPayment, escrow: esc, term, termUnit, currentPayment: currentPmt, paymentFilter: checkedBoxes
     });
     this.recalculateLoanBalances();
@@ -2504,12 +2507,13 @@ class MoneyTrackerApp {
     this.showToast(`Loan "${name}" added`);
   }
 
-  saveEditedLoan() {
+    saveEditedLoan() {
     const id = document.getElementById('editLoanId').value;
     const l = this.state.loans.find(x => x.id === id);
     if (!l) return;
     l.name = document.getElementById('loanName').value.trim();
-    l.balance = parseFloat(document.getElementById('loanBalance').value) || 0;
+    l.initialBalance = parseFloat(document.getElementById('loanBalance').value) || 0;
+    l.balanceAsOf = document.getElementById('loanBalanceDate').value;
     l.rate = parseFloat(document.getElementById('loanRate').value) || 0;
     l.term = parseInt(document.getElementById('loanTerm').value) || 30;
     l.termUnit = document.getElementById('loanTermUnit').value;
@@ -2522,6 +2526,7 @@ class MoneyTrackerApp {
     l.paymentFilter = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
     
     this._piManual = false;
+    this.recalculateLoanBalances(); // Recalculate immediately
     this.saveState();
     this.closeModal();
     this.renderTabContent('debts');
@@ -2538,32 +2543,40 @@ class MoneyTrackerApp {
     this.showToast('Loan deleted');
   }
 
-  recalculateLoanBalances() {
+    recalculateLoanBalances() {
     if (!this.state.loans || !this.state.loans.length) return;
     this.state.loans.forEach(loan => {
       let filters = loan.paymentFilter;
       if (typeof filters === 'string') filters = filters.split(',').map(f => f.trim()).filter(Boolean);
       if (Array.isArray(filters)) filters = filters.map(f => f.trim()).filter(Boolean);
-      if (!filters || !filters.length) return;
+      if (!filters || !filters.length) {
+        loan.balance = parseFloat(loan.initialBalance) || 0;
+        return;
+      }
 
+      // Only look at transactions strictly AFTER the Balance As Of date
+      const asOf = loan.balanceAsOf || new Date().toISOString().split('T')[0];
       const payments = this.state.transactions.filter(t => {
         if (t.status === 'estimated' || t.amount >= 0 || !t.description) return false;
+        if (t.date <= asOf) return false; // Ignore history!
         const desc = t.description.toUpperCase();
         return filters.some(f => desc.includes(f.toUpperCase()));
       });
 
-      if (!payments.length) return;
-      payments.sort((a, b) => new Date(a.date) - new Date(b.date));
-      let bal = parseFloat(loan.initialBalance || loan.balance) || 0;
-      const mr = ((parseFloat(loan.rate) || 0) / 100) / 12;
-      payments.forEach(p => {
-        const amt = Math.abs(parseFloat(p.amount) || 0);
-        const interest = bal * mr;
-        let principal = amt - interest;
-        if (principal < 0) principal = 0;
-        bal -= principal;
-        if (bal < 0) bal = 0;
-      });
+      let bal = parseFloat(loan.initialBalance) || 0;
+      
+      if (payments.length > 0) {
+        payments.sort((a, b) => new Date(a.date) - new Date(b.date));
+        const mr = ((parseFloat(loan.rate) || 0) / 100) / 12;
+        payments.forEach(p => {
+          const amt = Math.abs(parseFloat(p.amount) || 0);
+          const interest = bal * mr;
+          let principal = amt - interest;
+          if (principal < 0) principal = 0;
+          bal -= principal;
+          if (bal < 0) bal = 0;
+        });
+      }
       loan.balance = bal;
     });
     this.saveState();
