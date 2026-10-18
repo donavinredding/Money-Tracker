@@ -1291,13 +1291,31 @@ class MoneyTrackerApp {
     return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   }
 
+  getLoanMonths(loan) {
+    if (!loan) return 360;
+    const t = parseFloat(loan.term || loan.termYears) || 30;
+    const u = loan.termUnit || 'years';
+    return u === 'years' ? t * 12 : t;
+  }
+
   getLoanPI(loan) {
     if (!loan) return 0;
     const total = parseFloat(loan.minPayment) || 0;
     const escrow = parseFloat(loan.escrow) || 0;
     const derived = Math.max(0, total - escrow);
     if (derived > 0) return derived;
-    return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, parseFloat(loan.termYears) || 30);
+    
+    const totalMonths = this.getLoanMonths(loan);
+    return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, totalMonths);
+  }
+
+  calculatePI(balance, annualRate, totalMonths) {
+    const r = (annualRate / 100) / 12;
+    const n = totalMonths;
+    if (balance <= 0 || n <= 0) return 0;
+    if (r === 0) return balance / n;
+    const factor = Math.pow(1 + r, n);
+    return balance * r * factor / (factor - 1);
   }
 
   calculateProgressiveTax(income, brackets) {
@@ -1539,8 +1557,10 @@ class MoneyTrackerApp {
       const ov = scenario.loanOverrides || {};
       const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
       const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
-      const term = parseFloat(ov.termYears != null ? ov.termYears : loan.termYears) || 30;
-      return -this.calculatePI(bal, rate, term);
+      const t = parseFloat(ov.term != null ? ov.term : (loan.term || loan.termYears)) || 30;
+      const u = ov.termUnit != null ? ov.termUnit : (loan.termUnit || 'years');
+      const totalMonths = u === 'years' ? t * 12 : t;
+      return -this.calculatePI(bal, rate, totalMonths);
     }
 
     return 0;
@@ -1922,14 +1942,17 @@ class MoneyTrackerApp {
         list.innerHTML = loans.map(l => {
           const bal = parseFloat(l.balance) || 0;
           const rate = parseFloat(l.rate) || 0;
-          const term = parseFloat(l.termYears) || 30;
+          const term = parseFloat(l.term || l.termYears) || 30;
+          const unit = l.termUnit || 'years';
+          const termLabel = unit === 'years' ? `${term} yr` : `${term} mo`;
           const totalPmt = parseFloat(l.minPayment) || 0;
           const escrow = parseFloat(l.escrow) || 0;
           const pi = Math.max(0, totalPmt - escrow);
-          const autoPI = this.calculatePI(bal, rate, term);
+          
+          const totalMonths = this.getLoanMonths(l);
+          const autoPI = this.calculatePI(bal, rate, totalMonths);
           const piDisplay = pi > 0 ? pi : autoPI;
           
-          // Format filter array for display
           const filterDisplay = Array.isArray(l.paymentFilter) ? l.paymentFilter.join(', ') : (l.paymentFilter || '—');
 
           return `
@@ -1938,7 +1961,7 @@ class MoneyTrackerApp {
                 <div style="min-width:0;">
                   <div style="font-weight:700; font-size:1rem;">${this.escapeHtml(l.name)}</div>
                   <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-                    ${rate}% APR · ${term} yr · Filter: ${this.escapeHtml(filterDisplay)}
+                    ${rate}% APR · ${termLabel} · Filter: ${this.escapeHtml(filterDisplay)}
                   </div>
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
@@ -1971,7 +1994,7 @@ class MoneyTrackerApp {
     if (simControls) {
       if (loans.length > 0) {
         simControls.innerHTML = this.buildSimControlsHTML(loans);
-        this.renderDebtSimulation();
+        this.onSimLoanChange(); // Initialize simulator values
       } else {
         simControls.innerHTML = '';
       }
@@ -2026,10 +2049,11 @@ class MoneyTrackerApp {
     const bal = parseFloat(loan.balance) || 0;
     const rate = parseFloat(loan.rate) || 0;
     const escrow = parseFloat(loan.escrow) || 0;
-    const term = parseFloat(loan.termYears) || 30;
+    
+    const totalMonths = this.getLoanMonths(loan);
 
     const monthlyInterest = bal * (rate / 100 / 12);
-    const autoPI = this.calculatePI(bal, rate, term);
+    const autoPI = this.calculatePI(bal, rate, totalMonths);
     const storedPI = this.getLoanPI(loan);
 
     let pi;
@@ -2059,7 +2083,7 @@ class MoneyTrackerApp {
             of <span class="mono">$${monthlyInterest.toFixed(2)}</span>, so the loan would never pay off.
           </div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem;">
-            For a ${term}-year payoff at ${rate}%, the P&amp;I should be about
+            The P&amp;I should be about
             <span class="mono" style="color:var(--accent-primary); font-weight:600;">$${autoPI.toFixed(2)}</span>.
             Click <strong>Auto</strong> above to use that value.
           </div>
@@ -2154,20 +2178,23 @@ class MoneyTrackerApp {
     this.renderDebtChart(result.schedule, baseline.schedule);
   }
 
-  calculatePI(balance, annualRate, termYears) {
-    const r = (annualRate / 100) / 12;
-    const n = termYears * 12;
-    if (balance <= 0 || n <= 0) return 0;
-    if (r === 0) return balance / n;
-    const factor = Math.pow(1 + r, n);
-    return balance * r * factor / (factor - 1);
-  }
-
   onSimLoanChange() {
     this._piManual = false;
     const sel = document.getElementById('simLoanSelect');
     const extraEl = document.getElementById('simExtraPayment');
-    if (extraEl) extraEl.value = '0';
+    
+    if (sel && extraEl) {
+      const loan = this.state.loans.find(l => l.id === sel.value);
+      if (loan && loan.currentPayment) {
+        const pi = this.getLoanPI(loan);
+        const escrow = parseFloat(loan.escrow) || 0;
+        const required = pi + escrow;
+        const extra = Math.max(0, loan.currentPayment - required);
+        extraEl.value = extra.toFixed(2);
+      } else {
+        extraEl.value = '0';
+      }
+    }
     this.renderDebtSimulation();
   }
 
@@ -2305,18 +2332,33 @@ class MoneyTrackerApp {
       name: '',
       balance: 0,
       rate: 5,
+      term: 30,
+      termUnit: 'years',
       minPayment: 0,
       escrow: 0,
-      termYears: 30,
+      currentPayment: 0,
       paymentFilter: ''
     };
+    
+    // Migrate older loans
+    if (l.term === undefined && l.termYears !== undefined) {
+      l.term = l.termYears;
+      l.termUnit = 'years';
+    }
 
     const bal = parseFloat(l.balance) || 0;
     const rate = parseFloat(l.rate) || 0;
     const escrow = parseFloat(l.escrow) || 0;
     const totalPmt = parseFloat(l.minPayment) || 0;
+    const term = parseFloat(l.term) || 30;
+    const termUnit = l.termUnit || 'years';
+    const currentPayment = parseFloat(l.currentPayment) || 0;
+
     let pi = Math.max(0, totalPmt - escrow);
-    if (pi <= 0) pi = this.calculatePI(bal, rate, l.termYears || 30);
+    if (pi <= 0) {
+      const months = termUnit === 'years' ? term * 12 : term;
+      pi = this.calculatePI(bal, rate, months);
+    }
     const totalDisplay = pi + escrow;
 
     let uniqueDescs = [...new Set(this.state.transactions
@@ -2363,9 +2405,18 @@ class MoneyTrackerApp {
                 <input type="number" step="0.01" id="loanRate" value="${rate}">
               </div>
             </div>
-            <div>
-              <label class="stat-label">Term (Years)</label>
-              <input type="number" id="loanTerm" value="${l.termYears || 30}">
+            <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.75rem;">
+              <div>
+                <label class="stat-label">Term</label>
+                <input type="number" id="loanTerm" value="${term}">
+              </div>
+              <div>
+                <label class="stat-label">Unit</label>
+                <select id="loanTermUnit">
+                  <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
+                  <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
+                </select>
+              </div>
             </div>
 
             <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-top:0.25rem;">
@@ -2387,10 +2438,18 @@ class MoneyTrackerApp {
                 </div>
               </div>
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
-                <span style="font-size:0.8rem; color:var(--text-muted);">Total Monthly Payment</span>
+                <span style="font-size:0.8rem; color:var(--text-muted);">Total Required Payment</span>
                 <span id="loanTotalDisplay" class="mono" style="font-size:1rem; font-weight:700; color:var(--accent-primary);">
                   $${totalDisplay.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
                 </span>
+              </div>
+            </div>
+            
+            <div style="margin-top:0.25rem;">
+              <label class="stat-label">Currently Paying ($)</label>
+              <input type="number" step="0.01" id="loanCurrentPayment" value="${currentPayment.toFixed(2)}">
+              <div style="font-size:0.65rem; color:var(--text-dim); margin-top:4px;">
+                What you actually pay each month. Used to calculate your extra payment automatically.
               </div>
             </div>
 
@@ -2424,8 +2483,10 @@ class MoneyTrackerApp {
     const bal = parseFloat(document.getElementById('loanBalance').value);
     const rate = parseFloat(document.getElementById('loanRate').value);
     const term = parseInt(document.getElementById('loanTerm').value) || 30;
+    const termUnit = document.getElementById('loanTermUnit').value;
     const pi = parseFloat(document.getElementById('loanPI').value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
+    const currentPmt = parseFloat(document.getElementById('loanCurrentPayment').value) || 0;
     
     const checkedBoxes = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
     
@@ -2434,7 +2495,7 @@ class MoneyTrackerApp {
     this.state.loans.push({
       id: `loan_${Date.now()}`,
       name, balance: bal, initialBalance: bal,
-      rate, minPayment, escrow: esc, termYears: term, paymentFilter: checkedBoxes
+      rate, minPayment, escrow: esc, term, termUnit, currentPayment: currentPmt, paymentFilter: checkedBoxes
     });
     this.recalculateLoanBalances();
     this.saveState();
@@ -2450,11 +2511,13 @@ class MoneyTrackerApp {
     l.name = document.getElementById('loanName').value.trim();
     l.balance = parseFloat(document.getElementById('loanBalance').value) || 0;
     l.rate = parseFloat(document.getElementById('loanRate').value) || 0;
-    l.termYears = parseInt(document.getElementById('loanTerm').value) || 30;
+    l.term = parseInt(document.getElementById('loanTerm').value) || 30;
+    l.termUnit = document.getElementById('loanTermUnit').value;
     const pi = parseFloat(document.getElementById('loanPI').value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
     l.minPayment = pi + esc;
     l.escrow = esc;
+    l.currentPayment = parseFloat(document.getElementById('loanCurrentPayment').value) || 0;
     
     l.paymentFilter = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
     
@@ -2855,8 +2918,9 @@ class MoneyTrackerApp {
           const ov = s.loanOverrides || {};
           const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
           const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
-          const trm = ov.termYears != null ? ov.termYears : (l ? l.termYears : 30);
-          subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm}yr`;
+          const trm = ov.term != null ? ov.term : (l ? (l.term || l.termYears) : 30);
+          const trmU = ov.termUnit != null ? ov.termUnit : (l ? (l.termUnit || 'years') : 'years');
+          subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm} ${trmU}`;
         } else if (type === 'recurring') {
           subtitle = 'New recurring item';
         } else {
@@ -3730,6 +3794,8 @@ class MoneyTrackerApp {
         return;
       }
       const l = loans[0];
+      const term = l.term || l.termYears || 30;
+      const termUnit = l.termUnit || 'years';
       el.innerHTML = `
         <div>
           <label class="stat-label">Loan</label>
@@ -3741,15 +3807,22 @@ class MoneyTrackerApp {
           <label class="stat-label">Balance ($)</label>
           <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance)||0).toFixed(2)}">
         </div>
-        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
+        <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.5rem; margin-top:0.5rem;">
           <div>
-            <label class="stat-label">Rate (%)</label>
-            <input type="number" step="0.01" id="scenarioLoanRate" value="${l.rate}">
+            <label class="stat-label">Term</label>
+            <input type="number" id="scenarioLoanTerm" value="${term}">
           </div>
           <div>
-            <label class="stat-label">Term (Years)</label>
-            <input type="number" id="scenarioLoanTerm" value="${l.termYears || 30}">
+            <label class="stat-label">Unit</label>
+            <select id="scenarioLoanTermUnit">
+              <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
+              <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
+            </select>
           </div>
+        </div>
+        <div style="margin-top:0.5rem;">
+          <label class="stat-label">Rate (%)</label>
+          <input type="number" step="0.01" id="scenarioLoanRate" value="${l.rate}">
         </div>
         <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
           The monthly principal &amp; interest payment is subtracted as an expense in the projection.
@@ -3765,9 +3838,12 @@ class MoneyTrackerApp {
     const balEl = document.getElementById('scenarioLoanBalance');
     const rateEl = document.getElementById('scenarioLoanRate');
     const termEl = document.getElementById('scenarioLoanTerm');
+    const termUnitEl = document.getElementById('scenarioLoanTermUnit');
+    
     if (balEl) balEl.value = (parseFloat(l.balance) || 0).toFixed(2);
     if (rateEl) rateEl.value = l.rate;
-    if (termEl) termEl.value = l.termYears || 30;
+    if (termEl) termEl.value = l.term || l.termYears || 30;
+    if (termUnitEl) termUnitEl.value = l.termUnit || 'years';
   }
 
   saveScenario() {
@@ -3808,9 +3884,11 @@ class MoneyTrackerApp {
       scenario.loanOverrides = {
         balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
         rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-        termYears: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30
+        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+        termUnit: document.getElementById('scenarioLoanTermUnit').value
       };
-      const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, scenario.loanOverrides.termYears);
+      const months = scenario.loanOverrides.termUnit === 'years' ? scenario.loanOverrides.term * 12 : scenario.loanOverrides.term;
+      const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, months);
       scenario.amount = -pi;
       if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
     }
@@ -3891,9 +3969,13 @@ class MoneyTrackerApp {
         const el = document.getElementById('scenarioLoanRate');
         if (el) el.value = ov.rate;
       }
-      if (ov.termYears != null) {
+      if (ov.term != null) {
         const el = document.getElementById('scenarioLoanTerm');
-        if (el) el.value = ov.termYears;
+        if (el) el.value = ov.term;
+      }
+      if (ov.termUnit != null) {
+        const el = document.getElementById('scenarioLoanTermUnit');
+        if (el) el.value = ov.termUnit;
       }
     }
   }
@@ -3929,9 +4011,11 @@ class MoneyTrackerApp {
       sc.loanOverrides = {
         balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
         rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-        termYears: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30
+        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+        termUnit: document.getElementById('scenarioLoanTermUnit').value
       };
-      sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, sc.loanOverrides.termYears);
+      const months = sc.loanOverrides.termUnit === 'years' ? sc.loanOverrides.term * 12 : sc.loanOverrides.term;
+      sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, months);
     }
 
     if (rawName) sc.name = rawName;
