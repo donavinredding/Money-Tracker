@@ -1,61 +1,67 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MONEY TRACKER</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MONEY TRACKER</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
-<div id="storageWarningBanner" class="storage-warning-banner" style="display:none;">
-  <span>⚠ Storage <span class="storage-pct">0%</span> full — <span class="storage-used">0 MB</span></span>
-  <button onclick="app.openSettingsModal('storage')">Manage</button>
-  <button onclick="app.openStorageFullModal()">Trim</button>
-  <button onclick="app.dismissStorageBanner()">✕</button>
-</div>
-  
-<header class="top-bar">
-  <div class="brand">
-    <svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-      <polygon points="12 2 2 12 12 22 22 12 12 2"></polygon>
-    </svg>
-    <span>MONEY TRACKER</span>
+  <div id="storageWarningBanner" class="storage-warning-banner" style="display:none;">
+    <span>⚠ Storage <span class="storage-pct">0%</span> full — <span class="storage-used">0 MB</span></span>
+    <button onclick="app.openSettingsModal('storage')">Manage</button>
+    <button onclick="app.openStorageFullModal()">Trim</button>
+    <button onclick="app.dismissStorageBanner()">✕</button>
   </div>
 
-  <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-    <select id="globalAccountSelect" style="width: 160px;">
-      <option value="ALL">Combined Scope</option>
-      <option value="CHECKING">Checking</option>
-      <option value="SAVINGS">Savings</option>
-    </select>
-    <button class="btn btn-sm" data-action="openSettingsModal">⚙ Settings</button>
-    <input type="file" id="jsonInput" accept=".json" style="display:none">
-  </div>
-</header>
+  <header class="top-bar">
+    <div class="brand">
+      <svg class="brand-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+        stroke-width="2">
+        <polygon points="12 2 2 12 12 22 22 12 12 2"></polygon>
+      </svg>
+      <span>MONEY TRACKER</span>
+    </div>
 
-<nav class="nav-tabs" id="tabStrip">
-<button class="tab-btn active" data-tab="checking">Checking</button>
-<button class="tab-btn" data-tab="savings">Savings</button>
-<button class="tab-btn" data-tab="networth">Net Worth</button>
-<button class="tab-btn" data-tab="debts">Debt Payoff</button>
-<button class="tab-btn" data-tab="paycheck">Paycheck Calc</button>
-<button class="tab-btn" data-tab="calendar">Calendar</button>
-<button class="tab-btn" data-tab="forecaster">Forecaster</button>
-<button class="tab-btn" data-tab="apy">APY Simulator</button>
-</nav>
+    <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+      <select id="globalAccountSelect" style="width: 160px;">
+        <option value="ALL">Combined Scope</option>
+        <option value="CHECKING">Checking</option>
+        <option value="SAVINGS">Savings</option>
+      </select>
+      <button class="btn btn-sm" data-action="openSettingsModal">⚙ Settings</button>
+      <input type="file" id="jsonInput" accept=".json" style="display:none">
+    </div>
+  </header>
 
-<main id="mainContent">
-<!-- Content will be injected by app.js based on the active tab -->
-</main>
+  <nav class="nav-tabs" id="tabStrip">
+    <button class="tab-btn active" data-tab="checking">Checking</button>
+    <button class="tab-btn" data-tab="savings">Savings</button>
+    <button class="tab-btn" data-tab="networth">Net Worth</button>
+    <button class="tab-btn" data-tab="debts">Debt Payoff</button>
+    <button class="tab-btn" data-tab="paycheck">Paycheck Calc</button>
+    <button class="tab-btn" data-tab="calendar">Calendar</button>
+    <button class="tab-btn" data-tab="forecaster">Forecaster</button>
+    <button class="tab-btn" data-tab="apy">APY Simulator</button>
+  </nav>
 
-<!-- Modals will be injected by app.js -->
-<div id="modalContainer"></div>
-<div class="toast-container" id="toastContainer"></div>
+  <main id="mainContent">
+    <!-- Content will be injected by app.js based on the active tab -->
+  </main>
 
-<script src="app.js"></script>
+  <!-- Modals will be injected by app.js -->
+  <div id="modalContainer"></div>
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="app.js"></script>
 </body>
+
 </html>

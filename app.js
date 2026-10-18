@@ -2,7 +2,7 @@
    MONEY TRACKER APP - STEP 5 (REVIEWED + PRIORITY RULES)
    ========================================= */
 
-const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
+const CATEGORIES = ["Income", "Groceries", "Dining", "Bills and Utilities", "Subscriptions", "Transfers", "Transportation", "Shopping", "Health", "Entertainment", "Fees and Interest", "Miscellaneous"];
 
 const CATEGORY_FLOW_MAP = {
   "Income": "Income", "Bills and Utilities": "Fixed Bill", "Subscriptions": "Fixed Bill", "Transfers": "Internal Transfer",
@@ -93,18 +93,18 @@ const INITIAL_EMPTY_STATE = {
 
 /* ============ DEFAULT THEME ============ */
 const DEFAULT_THEME = {
-  accentPrimary:   '#00e5ff',
+  accentPrimary: '#00e5ff',
   accentSecondary: '#b26bff',
-  accentPositive:  '#00ff9d',
-  accentNegative:  '#ff3d71',
-  accentPending:   '#ffb020',
-  bgBase:          '#0a0a0f',
-  bgSurface:       '#12121a',
-  bgElevated:      '#1a1a26',
-  bgHover:         '#222233',
-  textMain:        '#f0f2f8',
-  textMuted:       '#8a8f9e',
-  textDim:         '#5a5e6b'
+  accentPositive: '#00ff9d',
+  accentNegative: '#ff3d71',
+  accentPending: '#ffb020',
+  bgBase: '#0a0a0f',
+  bgSurface: '#12121a',
+  bgElevated: '#1a1a26',
+  bgHover: '#222233',
+  textMain: '#f0f2f8',
+  textMuted: '#8a8f9e',
+  textDim: '#5a5e6b'
 };
 
 class MoneyTrackerApp {
@@ -129,14 +129,15 @@ class MoneyTrackerApp {
     this._settingsTab = 'profiles';
     this.editingRuleIndex = null;
     this._eventsBound = false;
+    this.showLockedOnly = false;
   }
 
   /* ============ STORAGE HEALTH / TRIM ============ */
   checkStorageHealth() {
     const banner = document.getElementById('storageWarningBanner');
-    const used  = this.calculateStorageBytes();
+    const used = this.calculateStorageBytes();
     const limit = this.getStorageLimitBytes();
-    const pct   = (used / limit) * 100;
+    const pct = (used / limit) * 100;
 
     document.body.classList.toggle('storage-warn-active', pct >= 85 && !this._bannerDismissed);
 
@@ -144,11 +145,11 @@ class MoneyTrackerApp {
 
     if (pct >= 85 && !this._bannerDismissed) {
       banner.style.display = 'flex';
-      banner.classList.toggle('warn',   pct <  95);
+      banner.classList.toggle('warn', pct < 95);
       banner.classList.toggle('danger', pct >= 95);
-      const pctEl  = banner.querySelector('.storage-pct');
+      const pctEl = banner.querySelector('.storage-pct');
       const usedEl = banner.querySelector('.storage-used');
-      if (pctEl)  pctEl.innerText  = pct.toFixed(1) + '%';
+      if (pctEl) pctEl.innerText = pct.toFixed(1) + '%';
       if (usedEl) usedEl.innerText = (used / 1024 / 1024).toFixed(2) + ' MB';
     } else {
       banner.style.display = 'none';
@@ -172,9 +173,9 @@ class MoneyTrackerApp {
   }
 
   openStorageFullModal() {
-    const used  = this.calculateStorageBytes();
+    const used = this.calculateStorageBytes();
     const limit = this.getStorageLimitBytes();
-    const pct   = (used / limit) * 100;
+    const pct = (used / limit) * 100;
     const templates = this.collapseRecurringForStorage().filter(t => t.isTemplate);
     const curMonths = templates.length
       ? Math.max(...templates.map(t => t.ruleConfig?.maxMonths || 32))
@@ -188,7 +189,7 @@ class MoneyTrackerApp {
           </h2>
           <p style="color:var(--text-muted); font-size:0.9rem; line-height:1.5; margin-bottom:0.75rem;">
             Your browser storage is <strong style="color:var(--accent-negative);">${pct.toFixed(1)}%</strong> full
-            (${(used/1024/1024).toFixed(2)} MB of ${(limit/1024/1024).toFixed(0)} MB). New saves may fail soon.
+            (${(used / 1024 / 1024).toFixed(2)} MB of ${(limit / 1024 / 1024).toFixed(0)} MB). New saves may fail soon.
           </p>
           <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.9rem 1rem; margin-bottom:1rem; font-size:0.82rem; line-height:1.5;">
             <div style="font-weight:600; color:var(--accent-primary); margin-bottom:0.4rem;">💡 Suggested fix</div>
@@ -251,7 +252,7 @@ class MoneyTrackerApp {
 
   loadTheme() {
     try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_THEME')) || {}; }
-    catch(e) { return {}; }
+    catch (e) { return {}; }
   }
   saveTheme(theme) {
     this.theme = theme;
@@ -260,18 +261,18 @@ class MoneyTrackerApp {
   applyTheme(theme) {
     const root = document.documentElement;
     const map = {
-      accentPrimary:   '--accent-primary',
+      accentPrimary: '--accent-primary',
       accentSecondary: '--accent-secondary',
-      accentPositive:  '--accent-positive',
-      accentNegative:  '--accent-negative',
-      accentPending:   '--accent-pending',
-      bgBase:          '--bg-base',
-      bgSurface:       '--bg-surface',
-      bgElevated:      '--bg-elevated',
-      bgHover:         '--bg-hover',
-      textMain:        '--text-main',
-      textMuted:       '--text-muted',
-      textDim:         '--text-dim'
+      accentPositive: '--accent-positive',
+      accentNegative: '--accent-negative',
+      accentPending: '--accent-pending',
+      bgBase: '--bg-base',
+      bgSurface: '--bg-surface',
+      bgElevated: '--bg-elevated',
+      bgHover: '--bg-hover',
+      textMain: '--text-main',
+      textMuted: '--text-muted',
+      textDim: '--text-dim'
     };
     Object.keys(map).forEach(k => {
       if (theme[k]) root.style.setProperty(map[k], theme[k]);
@@ -395,7 +396,7 @@ class MoneyTrackerApp {
     reader.onload = (e) => {
       let parsed;
       try { parsed = JSON.parse(e.target.result); }
-      catch(err) { alert('Invalid JSON file'); return; }
+      catch (err) { alert('Invalid JSON file'); return; }
 
       if (!parsed.taxStates || !parsed.taxStates.length) {
         parsed.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
@@ -485,12 +486,12 @@ class MoneyTrackerApp {
                 <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid ${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--border-subtle)'};">
                   <span style="font-weight:600; font-size:0.85rem; color:${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--text-main)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:50%;">${this.escapeHtml(p)}</span>
                   ${p === this.activeProfile
-                    ? `<span class="badge badge-posted" style="background:rgba(0,229,255,0.1); color:var(--accent-primary);">ACTIVE</span>`
-                    : `<div style="display:flex; gap:0.4rem;">
+          ? `<span class="badge badge-posted" style="background:rgba(0,229,255,0.1); color:var(--accent-primary);">ACTIVE</span>`
+          : `<div style="display:flex; gap:0.4rem;">
                          <button class="btn btn-sm" data-action="switchProfile" data-profile="${this.escapeHtml(p)}">Switch</button>
                          <button class="btn btn-sm btn-danger" data-action="deleteProfile" data-profile="${this.escapeHtml(p)}" title="Delete Profile">🗑</button>
                        </div>`
-                  }
+        }
                 </div>
               `).join('')}
             </div>
@@ -573,24 +574,24 @@ class MoneyTrackerApp {
         body = backBtn + `
           <div style="margin-bottom:1rem;">
             <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">ACCENTS</div>
-            ${picker('accentPrimary',   'Primary Accent',     'Buttons, active tabs, highlights')}
-            ${picker('accentSecondary', 'Secondary Accent',   'Vaults, charts, projections')}
-            ${picker('accentPositive',  'Positive / Income',  'Green values, gains')}
-            ${picker('accentNegative',  'Negative / Expense', 'Red values, losses')}
-            ${picker('accentPending',   'Pending',            'Amber badges')}
+            ${picker('accentPrimary', 'Primary Accent', 'Buttons, active tabs, highlights')}
+            ${picker('accentSecondary', 'Secondary Accent', 'Vaults, charts, projections')}
+            ${picker('accentPositive', 'Positive / Income', 'Green values, gains')}
+            ${picker('accentNegative', 'Negative / Expense', 'Red values, losses')}
+            ${picker('accentPending', 'Pending', 'Amber badges')}
           </div>
           <div style="margin-bottom:1rem;">
             <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">SURFACES</div>
-            ${picker('bgBase',      'Background',        'App background')}
-            ${picker('bgSurface',   'Surface',           'Cards, panels')}
-            ${picker('bgElevated',  'Elevated Surface',  'Dropdowns, buttons')}
-            ${picker('bgHover',     'Hover',             'Row hover background')}
+            ${picker('bgBase', 'Background', 'App background')}
+            ${picker('bgSurface', 'Surface', 'Cards, panels')}
+            ${picker('bgElevated', 'Elevated Surface', 'Dropdowns, buttons')}
+            ${picker('bgHover', 'Hover', 'Row hover background')}
           </div>
           <div style="margin-bottom:1rem;">
             <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">TEXT</div>
-            ${picker('textMain',  'Primary Text',   'Headings, body')}
-            ${picker('textMuted', 'Muted Text',     'Labels, secondary')}
-            ${picker('textDim',   'Dim Text',       'Tertiary')}
+            ${picker('textMain', 'Primary Text', 'Headings, body')}
+            ${picker('textMuted', 'Muted Text', 'Labels, secondary')}
+            ${picker('textDim', 'Dim Text', 'Tertiary')}
           </div>
           <div style="display:flex; gap:0.5rem; justify-content:flex-end; border-top:1px solid var(--border-subtle); padding-top:1rem;">
             <button class="btn btn-sm" onclick="app.resetTheme()">↺ Reset to Defaults</button>
@@ -649,18 +650,18 @@ class MoneyTrackerApp {
 
   previewThemeColor(key, value) {
     const map = {
-      accentPrimary:   '--accent-primary',
+      accentPrimary: '--accent-primary',
       accentSecondary: '--accent-secondary',
-      accentPositive:  '--accent-positive',
-      accentNegative:  '--accent-negative',
-      accentPending:   '--accent-pending',
-      bgBase:          '--bg-base',
-      bgSurface:       '--bg-surface',
-      bgElevated:      '--bg-elevated',
-      bgHover:         '--bg-hover',
-      textMain:        '--text-main',
-      textMuted:       '--text-muted',
-      textDim:         '--text-dim'
+      accentPositive: '--accent-positive',
+      accentNegative: '--accent-negative',
+      accentPending: '--accent-pending',
+      bgBase: '--bg-base',
+      bgSurface: '--bg-surface',
+      bgElevated: '--bg-elevated',
+      bgHover: '--bg-hover',
+      textMain: '--text-main',
+      textMuted: '--text-muted',
+      textDim: '--text-dim'
     };
     if (map[key]) document.documentElement.style.setProperty(map[key], value);
 
@@ -702,7 +703,7 @@ class MoneyTrackerApp {
   loadStateSafe() {
     let profiles = {};
     try { profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
-    catch(e) { profiles = {}; }
+    catch (e) { profiles = {}; }
 
     let activeName = localStorage.getItem('MONEY_TRACKER_ACTIVE_PROFILE');
     if (!activeName || !profiles[activeName]) {
@@ -720,7 +721,7 @@ class MoneyTrackerApp {
         };
         localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
         localStorage.removeItem('MONEY_TRACKER_STATE_V3');
-      } catch(e) { console.error('Legacy migration failed:', e); }
+      } catch (e) { console.error('Legacy migration failed:', e); }
     }
 
     if (!profiles[activeName]) {
@@ -756,7 +757,7 @@ class MoneyTrackerApp {
     s.loans = s.loans || [];
     s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
     if (s.accounts.CHECKING) s.accounts.CHECKING.name = s.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
-    if (s.accounts.SAVINGS)  s.accounts.SAVINGS.name  = s.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
+    if (s.accounts.SAVINGS) s.accounts.SAVINGS.name = s.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
     if (!s.taxStates || !Array.isArray(s.taxStates) || !s.taxStates.length) {
       s.taxStates = JSON.parse(JSON.stringify(DEFAULT_TAX_STATES));
     }
@@ -767,7 +768,7 @@ class MoneyTrackerApp {
     try {
       localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
       localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', activeName);
-    } catch(e) {
+    } catch (e) {
       console.error('Boot save failed:', e);
       setTimeout(() => alert('Storage is full. Your data may not save. Please export and remove unused profiles.'), 100);
     }
@@ -787,15 +788,15 @@ class MoneyTrackerApp {
     const out = [...nonTemplates];
 
     templates.forEach(tmpl => {
-      const cfg       = tmpl.ruleConfig || { interval: 1, freq: 'months' };
-      const interval  = Math.max(1, cfg.interval || 1);
-      const freq      = cfg.freq || 'months';
-      const endType   = cfg.endType || (cfg.count != null ? 'count' : 'forever');
-      const endVal    = cfg.endVal != null ? cfg.endVal : cfg.count;
+      const cfg = tmpl.ruleConfig || { interval: 1, freq: 'months' };
+      const interval = Math.max(1, cfg.interval || 1);
+      const freq = cfg.freq || 'months';
+      const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+      const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
       const maxMonths = Math.max(1, Math.min(cfg.maxMonths || 32, 32));
 
       const startDate = new Date(tmpl.date + 'T00:00:00');
-      const capDate   = new Date(startDate);
+      const capDate = new Date(startDate);
       capDate.setMonth(capDate.getMonth() + maxMonths);
 
       let cur = new Date(startDate);
@@ -804,13 +805,13 @@ class MoneyTrackerApp {
         if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
         if (endType === 'count' && endVal && i >= endVal) break;
 
-        const dateStr = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}-${String(cur.getDate()).padStart(2,'0')}`;
+        const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
         out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
 
-        if (freq === 'days')        cur.setDate(cur.getDate() + interval);
-        else if (freq === 'weeks')  cur.setDate(cur.getDate() + 7 * interval);
+        if (freq === 'days') cur.setDate(cur.getDate() + interval);
+        else if (freq === 'weeks') cur.setDate(cur.getDate() + 7 * interval);
         else if (freq === 'months') cur.setMonth(cur.getMonth() + interval);
-        else if (freq === 'years')  cur.setFullYear(cur.getFullYear() + interval);
+        else if (freq === 'years') cur.setFullYear(cur.getFullYear() + interval);
         i++;
       }
     });
@@ -853,7 +854,7 @@ class MoneyTrackerApp {
       localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', this.activeProfile);
       this.checkStorageHealth();
       return true;
-    } catch(e) {
+    } catch (e) {
       console.error('Save failed:', e);
       if (String(e).includes('Quota') || String(e).includes('quota')) {
         this.showToast('⚠ Storage full — see banner for options');
@@ -867,13 +868,13 @@ class MoneyTrackerApp {
 
   loadProfiles() {
     try { return JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
-    catch(e) { return {}; }
+    catch (e) { return {}; }
   }
   saveProfiles(profiles) {
     try {
       localStorage.setItem('MONEY_TRACKER_PROFILES', JSON.stringify(profiles));
       return true;
-    } catch(e) {
+    } catch (e) {
       console.error('saveProfiles failed:', e);
       this.showToast('⚠ Storage full — could not save profile');
       return false;
@@ -1005,57 +1006,67 @@ class MoneyTrackerApp {
       console.error("Tab render error:", e);
       this.showToast("Render error. Check console.");
     }
-    setTimeout(() => { try { this.renderCharts(); } catch(e) { console.error(e); } }, 50);
+    setTimeout(() => { try { this.renderCharts(); } catch (e) { console.error(e); } }, 50);
   }
 
   tplChecking() {
+    const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
+
     return `
-      <section class="view-container active">
-        <div class="stat-header" id="checkingStats"></div>
-        <div class="card" style="margin-bottom:1.5rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h3 style="font-size:1rem; font-weight:600;">Checking Balance History</h3>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-sm chart-mode-btn active-mode" data-chart-range="week">week</button>
-                <button class="btn btn-sm chart-mode-btn" data-chart-range="month">month</button>
-                <button class="btn btn-sm chart-mode-btn" data-chart-range="year">year</button>
-              </div>
+    <section class="view-container active">
+      <div class="stat-header" id="checkingStats"></div>
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Checking Balance History</h3>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-sm chart-mode-btn active-mode" data-chart-range="week">week</button>
+              <button class="btn btn-sm chart-mode-btn" data-chart-range="month">month</button>
+              <button class="btn btn-sm chart-mode-btn" data-chart-range="year">year</button>
             </div>
           </div>
-          <canvas id="checkingChart" height="260" style="width:100%; display:block;"></canvas>
         </div>
-        <div class="table-toolbar">
-          <div class="search-box">
-            <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}" title="Search by description, nickname, or category">
-          </div>
-          <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
-            <button class="btn btn-sm" data-action="forceApplyRules" title="Force apply rules to ALL rows, bypassing locks">🪄 Reapply Rules</button>
-            <button class="btn btn-sm" data-action="unlockAll" title="Unlock all rows so rules can apply">🔓 Unlock All</button>
-            <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
-            <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
-            <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
-            <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
-          </div>
+        <canvas id="checkingChart" height="260" style="width:100%; display:block;"></canvas>
+      </div>
+      <div class="table-toolbar">
+        <div class="search-box">
+          <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}" title="Search by description, nickname, or category">
         </div>
-        <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
-          <table id="checkingTable">
-            <thead><tr>
-              <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
-              <th data-sort="date">Date ${this.sortArrow('date')}</th>
-              <th data-sort="description">Description ${this.sortArrow('description')}</th>
-              <th data-sort="category">Category ${this.sortArrow('category')}</th>
-              <th>Flow</th>
-              <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
-              <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
-              <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
-            </tr></thead>
-            <tbody id="checkingTableBody"></tbody>
-          </table>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button class="btn btn-sm ${this.showLockedOnly ? 'btn-primary' : ''}" data-action="toggleLockedFilter" title="${this.showLockedOnly ? 'Show all transactions' : 'Show only locked transactions'}">🔒 Locked${lockedCount ? ` (${lockedCount})` : ''}</button>
+          <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
+          <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
+          <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
+          <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
+          <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
         </div>
-      </section>`;
+      </div>
+      <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
+        <table id="checkingTable">
+          <thead><tr>
+            <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
+            <th data-sort="date">Date ${this.sortArrow('date')}</th>
+            <th data-sort="description">Description ${this.sortArrow('description')}</th>
+            <th data-sort="category">Category ${this.sortArrow('category')}</th>
+            <th>Flow</th>
+            <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
+            <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
+            <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
+          </tr></thead>
+          <tbody id="checkingTableBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Bulk action bar (slides up when rows are selected) -->
+      <div class="bulk-bar" id="bulkBar">
+        <span id="bulkBarCount" style="font-weight:700; font-size:0.8rem; color:var(--accent-primary); margin-right:0.5rem;">0 selected</span>
+        <button class="btn btn-sm" data-action="bulkLockSelected" title="Lock all selected transactions">🔒 Lock</button>
+        <button class="btn btn-sm" data-action="bulkUnlockSelected" title="Unlock all selected transactions">🔓 Unlock</button>
+        <button class="btn btn-sm" data-action="bulkToggleLockSelected" title="Toggle lock state for each selected transaction">↻ Toggle</button>
+        <button class="btn btn-sm" data-action="clearSelection" title="Deselect all">✕ Clear</button>
+      </div>
+    </section>`;
   }
 
   tplSavings() {
@@ -1384,8 +1395,16 @@ class MoneyTrackerApp {
     const tbody = document.getElementById('checkingTableBody');
     if (!tbody) return;
 
-    let items = this.getFilteredTransactions('CHECKING');
-    items = [...this.state.pendingItems.filter(p => p.account === 'CHECKING'), ...items];
+    let items;
+    if (this.showLockedOnly) {
+      // Locked-only view: hide pending items and unlocked rows
+      items = this.getFilteredTransactions('CHECKING').filter(t => t.locked);
+    } else {
+      items = [
+        ...this.state.pendingItems.filter(p => p.account === 'CHECKING'),
+        ...this.getFilteredTransactions('CHECKING')
+      ];
+    }
 
     if (this.searchQuery) {
       const q = this.searchQuery;
@@ -1420,10 +1439,15 @@ class MoneyTrackerApp {
     const limit = 500;
     const display = items.slice(0, limit);
     let html = display.map(t => this.buildCheckingRow(t)).join('');
-    if (items.length > limit) {
+    if (items.length === 0 && this.showLockedOnly) {
+      html = `<tr><td colspan="9" style="text-align:center; padding:2rem; color:var(--text-muted); font-size:0.85rem;">🔒 No locked transactions yet.<br><span style="font-size:0.75rem;">Click the 🔓 icon on any row to lock it, then use the 🔒 Locked filter to view them here.</span></td></tr>`;
+    } else if (items.length > limit) {
       html += `<tr><td colspan="9" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">Showing first ${limit} of ${items.length}. Use search to narrow.</td></tr>`;
     }
     tbody.innerHTML = html;
+
+    // Sync bulk bar with selection state after every render
+    this.updateBulkBar();
   }
 
   buildCheckingRow(t) {
@@ -1649,18 +1673,28 @@ class MoneyTrackerApp {
     if (!tx) return;
     tx.locked = !tx.locked;
     this.saveState();
+
+    // In locked-only view, unlocking a row should make it disappear
+    if (this.showLockedOnly) {
+      this.renderCheckingTable();
+      return;
+    }
+
     const row = document.querySelector(`tr[data-tx-row="${id}"]`);
     if (row) {
       const lc = row.querySelector('[data-toggle-lock]');
       if (lc) {
         lc.innerText = tx.locked ? '🔒' : '🔓';
-        lc.title = tx.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes';
+        lc.title = tx.locked
+          ? 'Unlock to allow auto-rules to update this row'
+          : 'Lock to prevent auto-rules from overwriting your manual changes';
       }
     }
   }
 
   toggleRowSelect(id, checked) {
     if (checked) this.selectedRows.add(id); else this.selectedRows.delete(id);
+    this.updateBulkBar();
   }
 
   selectAllRows(accountKey, checked) {
@@ -1671,6 +1705,77 @@ class MoneyTrackerApp {
       if (checked) this.selectedRows.add(cb.dataset.rowCheckbox);
       else this.selectedRows.delete(cb.dataset.rowCheckbox);
     });
+    this.updateBulkBar();
+  }
+
+  /* ============================================================
+   BULK SELECTION + LOCK ACTIONS
+   ============================================================ */
+
+  updateBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    if (!bar) return;
+    const n = this.selectedRows.size;
+    const countEl = document.getElementById('bulkBarCount');
+    if (countEl) countEl.textContent = `${n} selected`;
+    bar.classList.toggle('active', n > 0);
+  }
+
+  toggleLockedFilter() {
+    this.showLockedOnly = !this.showLockedOnly;
+    this.selectedRows.clear(); // selection resets when the visible set changes
+    this.renderTabContent('checking');
+    this.showToast(this.showLockedOnly ? '🔒 Showing locked only' : 'Showing all transactions');
+  }
+
+  bulkLockSelected() {
+    if (!this.selectedRows.size) return;
+    let count = 0;
+    this.selectedRows.forEach(id => {
+      const tx = this.state.transactions.find(t => t.id === id);
+      if (tx && !tx.locked) { tx.locked = true; count++; }
+    });
+    this.saveState();
+    // Keep selection so user can chain (e.g. lock → set category)
+    this.renderTabContent('checking');
+    this.showToast(`🔒 Locked ${count} transaction${count !== 1 ? 's' : ''}`);
+  }
+
+  bulkUnlockSelected() {
+    if (!this.selectedRows.size) return;
+    let count = 0;
+    this.selectedRows.forEach(id => {
+      const tx = this.state.transactions.find(t => t.id === id);
+      if (tx && tx.locked) { tx.locked = false; count++; }
+    });
+    this.selectedRows.clear(); // Unlocked rows vanish in locked-only view
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast(`🔓 Unlocked ${count} transaction${count !== 1 ? 's' : ''}`);
+  }
+
+  bulkToggleLockSelected() {
+    if (!this.selectedRows.size) return;
+    let locked = 0, unlocked = 0;
+    this.selectedRows.forEach(id => {
+      const tx = this.state.transactions.find(t => t.id === id);
+      if (tx) {
+        tx.locked = !tx.locked;
+        if (tx.locked) locked++; else unlocked++;
+      }
+    });
+    this.selectedRows.clear();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast(`Toggled — 🔒 ${locked} locked, 🔓 ${unlocked} unlocked`);
+  }
+
+  clearSelection() {
+    this.selectedRows.clear();
+    document.querySelectorAll('[data-row-checkbox]').forEach(cb => { cb.checked = false; });
+    const header = document.getElementById('checkingHeaderSelect');
+    if (header) header.checked = false;
+    this.updateBulkBar();
   }
 
   sortTable(col) {
@@ -1767,9 +1872,9 @@ class MoneyTrackerApp {
       if (!text) return false;
       const t = String(text).toLowerCase();
       const p = String(rule.searchPattern).toLowerCase();
-      if (mt === 'exact')  return t === p;
+      if (mt === 'exact') return t === p;
       if (mt === 'begins') return t.startsWith(p);
-      if (mt === 'ends')   return t.endsWith(p);
+      if (mt === 'ends') return t.endsWith(p);
       return t.includes(p);
     };
     const matched = check(desc) || check(nickname);
@@ -1807,35 +1912,6 @@ class MoneyTrackerApp {
     });
   }
 
-    /* Force rules to apply even if locked */
-  forceApplyRules() {
-    let count = 0;
-    this.state.transactions.forEach(t => {
-      if (!t.description) return;
-      const rule = this._findMatchingRule(t.description, t.nickname);
-      if (rule) {
-        let changed = false;
-        if (rule.nickname && t.nickname !== rule.nickname) { t.nickname = rule.nickname; changed = true; }
-        if (rule.category && t.category !== rule.category) { t.category = rule.category; changed = true; }
-        if (changed) { t.locked = false; count++; }
-      }
-    });
-    this.saveState();
-    this.renderCheckingTable();
-    this.showToast(`Reapplied rules and unlocked ${count} transactions`);
-  }
-
-  /* Unlock everything */
-  unlockAll() {
-    let count = 0;
-    this.state.transactions.forEach(t => {
-      if (t.locked) { t.locked = false; count++; }
-    });
-    this.saveState();
-    this.renderCheckingTable();
-    this.showToast(`Unlocked ${count} transactions. Rules will apply on next edit.`);
-  }
-
   cleanSpotify() {
     this.state.transactions.forEach(t => {
       if (t.description && t.description.toUpperCase().startsWith('SPOTIFY')) t.description = 'Spotify';
@@ -1849,34 +1925,191 @@ class MoneyTrackerApp {
   }
 
   renderCalendarView() {
-  try {
-    const title = document.getElementById('calendarMonthTitle');
-    const grid = document.getElementById('calendarGrid');
-    const mobile = document.getElementById('calendarMobileList');
-    if (!title || !grid || !mobile) return;
+    try {
+      const title = document.getElementById('calendarMonthTitle');
+      const grid = document.getElementById('calendarGrid');
+      const mobile = document.getElementById('calendarMobileList');
+      if (!title || !grid || !mobile) return;
 
-    const year = this.calendarMonth.getFullYear();
-    const month = this.calendarMonth.getMonth();
-    const mn = ["January","February","March","April","May","June","July","August","September","October","November","December"];
-    title.innerText = `${mn[month]} ${year}`;
+      const year = this.calendarMonth.getFullYear();
+      const month = this.calendarMonth.getMonth();
+      const mn = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      title.innerText = `${mn[month]} ${year}`;
 
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+      const firstDay = new Date(year, month, 1).getDay();
+      const daysInMonth = new Date(year, month + 1, 0).getDate();
+      const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-    const dayMap = new Map();
-    this.state.transactions.forEach(t => {
-      if (t.date && t.date.startsWith(monthPrefix)) {
-        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-        dayMap.get(t.date).push(t);
+      const dayMap = new Map();
+      this.state.transactions.forEach(t => {
+        if (t.date && t.date.startsWith(monthPrefix)) {
+          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+          dayMap.get(t.date).push(t);
+        }
+      });
+      this.state.pendingItems.forEach(t => {
+        if (t.date && t.date.startsWith(monthPrefix)) {
+          if (!dayMap.has(t.date)) dayMap.set(t.date, []);
+          dayMap.get(t.date).push(t);
+        }
+      });
+
+      const classify = (t) => {
+        const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+        if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
+        const amt = parseFloat(t.amount) || 0;
+        if (amt > 0) return 'income';
+        if (amt < 0) return 'expense';
+        return 'other';
+      };
+
+      const gridFrag = document.createDocumentFragment();
+      const mobileFrag = document.createDocumentFragment();
+
+      for (let i = 0; i < firstDay; i++) {
+        const ec = document.createElement('div');
+        ec.className = 'calendar-cell other-month';
+        gridFrag.appendChild(ec);
       }
-    });
-    this.state.pendingItems.forEach(t => {
-      if (t.date && t.date.startsWith(monthPrefix)) {
-        if (!dayMap.has(t.date)) dayMap.set(t.date, []);
-        dayMap.get(t.date).push(t);
+
+      let totalIncome = 0, totalExpense = 0, totalTransfer = 0, hasActivity = false;
+
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const dayTxs = dayMap.get(dateStr) || [];
+
+        let dIncome = 0, dExpense = 0, dTransfer = 0;
+        dayTxs.forEach(t => {
+          const amt = parseFloat(t.amount) || 0;
+          const kind = classify(t);
+          if (kind === 'income') dIncome += amt;
+          else if (kind === 'expense') dExpense += Math.abs(amt);
+          else if (kind === 'transfer') dTransfer += amt;
+        });
+
+        totalIncome += dIncome;
+        totalExpense += dExpense;
+        totalTransfer += dTransfer;
+
+        const cell = document.createElement('div');
+        cell.className = 'calendar-cell';
+        cell.addEventListener('click', () => this.openDayDrawer(dateStr));
+
+        const num = document.createElement('div');
+        num.style.fontWeight = '700';
+        num.style.fontSize = '0.85rem';
+        num.innerText = d;
+        cell.appendChild(num);
+
+        if (dayTxs.length > 0) {
+          hasActivity = true;
+
+          const info = document.createElement('div');
+          info.style.display = 'flex';
+          info.style.flexDirection = 'column';
+          info.style.gap = '1px';
+          info.style.alignItems = 'flex-start';
+          info.style.marginTop = '3px';
+
+          const badge = document.createElement('div');
+          badge.className = 'badge badge-vault';
+          badge.style.fontSize = '0.55rem';
+          badge.style.marginBottom = '2px';
+          badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
+          info.appendChild(badge);
+
+          if (dIncome > 0) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.68rem';
+            l.style.fontWeight = '600';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--accent-positive)';
+            l.innerText = `+$${dIncome.toFixed(2)}`;
+            info.appendChild(l);
+          }
+          if (dExpense > 0) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.68rem';
+            l.style.fontWeight = '600';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--accent-negative)';
+            l.innerText = `-$${dExpense.toFixed(2)}`;
+            info.appendChild(l);
+          }
+          if (Math.abs(dTransfer) >= 0.005) {
+            const l = document.createElement('div');
+            l.style.fontSize = '0.6rem';
+            l.style.fontFamily = 'var(--font-mono, monospace)';
+            l.style.color = 'var(--text-muted)';
+            l.style.opacity = '0.75';
+            const sign = dTransfer >= 0 ? '+' : '-';
+            l.innerText = `↔ ${sign}$${Math.abs(dTransfer).toFixed(2)}`;
+            info.appendChild(l);
+          }
+
+          cell.appendChild(info);
+        }
+        gridFrag.appendChild(cell);
+
+        if (dayTxs.length > 0) {
+          const mc = document.createElement('div');
+          mc.className = 'calendar-mobile-card has-activity';
+          mc.addEventListener('click', () => this.openDayDrawer(dateStr));
+          mc.innerHTML = `
+          <div style="flex:1;">
+            <div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">${dayTxs.length} transaction(s)</div>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.75rem; font-family:var(--font-mono, monospace);">
+              ${dIncome > 0 ? `<span style="color:var(--accent-positive); font-weight:600;">+$${dIncome.toFixed(2)}</span>` : ''}
+              ${dExpense > 0 ? `<span style="color:var(--accent-negative); font-weight:600;">-$${dExpense.toFixed(2)}</span>` : ''}
+              ${Math.abs(dTransfer) >= 0.005 ? `<span style="color:var(--text-muted);">↔ ${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</span>` : ''}
+            </div>
+          </div>`;
+          mobileFrag.appendChild(mc);
+        }
       }
-    });
+
+      grid.innerHTML = ''; mobile.innerHTML = '';
+      grid.appendChild(gridFrag);
+      if (!hasActivity) {
+        const noAct = document.createElement('div');
+        noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
+        noAct.innerText = 'No transactions this month.';
+        mobileFrag.appendChild(noAct);
+      }
+      mobile.appendChild(mobileFrag);
+
+      const summary = document.getElementById('calendarMonthSummary');
+      if (summary) {
+        const net = totalIncome - totalExpense;
+        summary.innerHTML = `
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem;">
+          <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.15rem;">$${totalIncome.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.15rem;">$${totalExpense.toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Transfers</div><div class="stat-value mono" style="color:var(--text-muted); font-size:1.15rem;">${totalTransfer >= 0 ? '+' : '-'}$${Math.abs(totalTransfer).toFixed(2)}</div></div>
+          <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-size:1.15rem;">$${net.toFixed(2)}</div></div>
+        </div>`;
+      }
+    } catch (e) { console.error("Calendar error:", e); }
+  }
+
+  changeMonth(btn) {
+    const offset = parseInt(btn.dataset.offset) || 0;
+    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
+    this.renderCalendarView();
+  }
+
+  openDayDrawer(dateStr) {
+    this.currentDrawerDate = dateStr;
+    let drawer = document.getElementById('dayDrawer');
+    if (!drawer) {
+      drawer = document.createElement('div');
+      drawer.id = 'dayDrawer';
+      drawer.className = 'drawer';
+      document.body.appendChild(drawer);
+    }
+    const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
+      .concat(this.state.pendingItems.filter(t => t.date === dateStr));
 
     const classify = (t) => {
       const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
@@ -1887,172 +2120,15 @@ class MoneyTrackerApp {
       return 'other';
     };
 
-    const gridFrag = document.createDocumentFragment();
-    const mobileFrag = document.createDocumentFragment();
+    const income = dayTxs.filter(t => classify(t) === 'income');
+    const expenses = dayTxs.filter(t => classify(t) === 'expense');
+    const transfers = dayTxs.filter(t => classify(t) === 'transfer');
+    const other = dayTxs.filter(t => classify(t) === 'other');
 
-    for (let i = 0; i < firstDay; i++) {
-      const ec = document.createElement('div');
-      ec.className = 'calendar-cell other-month';
-      gridFrag.appendChild(ec);
-    }
-
-    let totalIncome = 0, totalExpense = 0, totalTransfer = 0, hasActivity = false;
-
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const dayTxs = dayMap.get(dateStr) || [];
-
-      let dIncome = 0, dExpense = 0, dTransfer = 0;
-      dayTxs.forEach(t => {
-        const amt = parseFloat(t.amount) || 0;
-        const kind = classify(t);
-        if (kind === 'income') dIncome += amt;
-        else if (kind === 'expense') dExpense += Math.abs(amt);
-        else if (kind === 'transfer') dTransfer += amt;
-      });
-
-      totalIncome += dIncome;
-      totalExpense += dExpense;
-      totalTransfer += dTransfer;
-
-      const cell = document.createElement('div');
-      cell.className = 'calendar-cell';
-      cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-
-      const num = document.createElement('div');
-      num.style.fontWeight = '700';
-      num.style.fontSize = '0.85rem';
-      num.innerText = d;
-      cell.appendChild(num);
-
-      if (dayTxs.length > 0) {
-        hasActivity = true;
-
-        const info = document.createElement('div');
-        info.style.display = 'flex';
-        info.style.flexDirection = 'column';
-        info.style.gap = '1px';
-        info.style.alignItems = 'flex-start';
-        info.style.marginTop = '3px';
-
-        const badge = document.createElement('div');
-        badge.className = 'badge badge-vault';
-        badge.style.fontSize = '0.55rem';
-        badge.style.marginBottom = '2px';
-        badge.innerText = `${dayTxs.length} item${dayTxs.length !== 1 ? 's' : ''}`;
-        info.appendChild(badge);
-
-        if (dIncome > 0) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.68rem';
-          l.style.fontWeight = '600';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--accent-positive)';
-          l.innerText = `+$${dIncome.toFixed(2)}`;
-          info.appendChild(l);
-        }
-        if (dExpense > 0) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.68rem';
-          l.style.fontWeight = '600';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--accent-negative)';
-          l.innerText = `-$${dExpense.toFixed(2)}`;
-          info.appendChild(l);
-        }
-        if (Math.abs(dTransfer) >= 0.005) {
-          const l = document.createElement('div');
-          l.style.fontSize = '0.6rem';
-          l.style.fontFamily = 'var(--font-mono, monospace)';
-          l.style.color = 'var(--text-muted)';
-          l.style.opacity = '0.75';
-          const sign = dTransfer >= 0 ? '+' : '-';
-          l.innerText = `↔ ${sign}$${Math.abs(dTransfer).toFixed(2)}`;
-          info.appendChild(l);
-        }
-
-        cell.appendChild(info);
-      }
-      gridFrag.appendChild(cell);
-
-      if (dayTxs.length > 0) {
-        const mc = document.createElement('div');
-        mc.className = 'calendar-mobile-card has-activity';
-        mc.addEventListener('click', () => this.openDayDrawer(dateStr));
-        mc.innerHTML = `
-          <div style="flex:1;">
-            <div style="font-weight:700;">${mn[month]} ${d}, ${year}</div>
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">${dayTxs.length} transaction(s)</div>
-            <div style="display:flex; flex-wrap:wrap; gap:8px; font-size:0.75rem; font-family:var(--font-mono, monospace);">
-              ${dIncome > 0 ? `<span style="color:var(--accent-positive); font-weight:600;">+$${dIncome.toFixed(2)}</span>` : ''}
-              ${dExpense > 0 ? `<span style="color:var(--accent-negative); font-weight:600;">-$${dExpense.toFixed(2)}</span>` : ''}
-              ${Math.abs(dTransfer) >= 0.005 ? `<span style="color:var(--text-muted);">↔ ${dTransfer >= 0 ? '+' : '-'}$${Math.abs(dTransfer).toFixed(2)}</span>` : ''}
-            </div>
-          </div>`;
-        mobileFrag.appendChild(mc);
-      }
-    }
-
-    grid.innerHTML = ''; mobile.innerHTML = '';
-    grid.appendChild(gridFrag);
-    if (!hasActivity) {
-      const noAct = document.createElement('div');
-      noAct.style.cssText = 'color:var(--text-muted); text-align:center; padding:1rem;';
-      noAct.innerText = 'No transactions this month.';
-      mobileFrag.appendChild(noAct);
-    }
-    mobile.appendChild(mobileFrag);
-
-    const summary = document.getElementById('calendarMonthSummary');
-    if (summary) {
-      const net = totalIncome - totalExpense;
-      summary.innerHTML = `
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap:0.75rem;">
-          <div class="stat-card"><div class="stat-label">Income</div><div class="stat-value mono" style="color:var(--accent-positive); font-size:1.15rem;">$${totalIncome.toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Expenses</div><div class="stat-value mono" style="color:var(--accent-negative); font-size:1.15rem;">$${totalExpense.toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Transfers</div><div class="stat-value mono" style="color:var(--text-muted); font-size:1.15rem;">${totalTransfer >= 0 ? '+' : '-'}$${Math.abs(totalTransfer).toFixed(2)}</div></div>
-          <div class="stat-card"><div class="stat-label">Net</div><div class="stat-value mono" style="color:${net >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}; font-size:1.15rem;">$${net.toFixed(2)}</div></div>
-        </div>`;
-    }
-  } catch(e) { console.error("Calendar error:", e); }
-}
-
-  changeMonth(btn) {
-    const offset = parseInt(btn.dataset.offset) || 0;
-    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
-    this.renderCalendarView();
-  }
-
-  openDayDrawer(dateStr) {
-  this.currentDrawerDate = dateStr;
-  let drawer = document.getElementById('dayDrawer');
-  if (!drawer) {
-    drawer = document.createElement('div');
-    drawer.id = 'dayDrawer';
-    drawer.className = 'drawer';
-    document.body.appendChild(drawer);
-  }
-  const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
-    .concat(this.state.pendingItems.filter(t => t.date === dateStr));
-
-  const classify = (t) => {
-    const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
-    if (flow === 'Internal Transfer' || t.category === 'Transfers') return 'transfer';
-    const amt = parseFloat(t.amount) || 0;
-    if (amt > 0) return 'income';
-    if (amt < 0) return 'expense';
-    return 'other';
-  };
-
-  const income = dayTxs.filter(t => classify(t) === 'income');
-  const expenses = dayTxs.filter(t => classify(t) === 'expense');
-  const transfers = dayTxs.filter(t => classify(t) === 'transfer');
-  const other = dayTxs.filter(t => classify(t) === 'other');
-
-  const renderGroup = (label, txs, color) => {
-    if (!txs.length) return '';
-    const total = txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-    return `
+    const renderGroup = (label, txs, color) => {
+      if (!txs.length) return '';
+      const total = txs.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+      return `
       <div style="margin-bottom:1.1rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--border-subtle); margin-bottom:0.5rem;">
           <span class="stat-label" style="font-size:0.68rem; color:${color};">${label} · ${txs.length}</span>
@@ -2068,13 +2144,13 @@ class MoneyTrackerApp {
             </div>
           </div>`).join('')}
       </div>`;
-  };
+    };
 
-  const dIncome = income.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
-  const dExpense = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
-  const dTransfer = transfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+    const dIncome = income.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+    const dExpense = expenses.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
+    const dTransfer = transfers.reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
 
-  drawer.innerHTML = `
+    drawer.innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
       <h3 style="font-size:1.1rem; font-weight:700;">Details for ${dateStr}</h3>
       <button class="btn btn-sm" data-action="closeDrawer">Close</button>
@@ -2094,13 +2170,13 @@ class MoneyTrackerApp {
       </div>
     </div>
     ${dayTxs.length === 0 ? '<div style="color:var(--text-muted);">No transactions.</div>' :
-      renderGroup('Income', income, 'var(--accent-positive)') +
-      renderGroup('Expenses', expenses, 'var(--accent-negative)') +
-      renderGroup('Transfers', transfers, 'var(--text-muted)') +
-      renderGroup('Other', other, 'var(--text-muted)')}
+        renderGroup('Income', income, 'var(--accent-positive)') +
+        renderGroup('Expenses', expenses, 'var(--accent-negative)') +
+        renderGroup('Transfers', transfers, 'var(--text-muted)') +
+        renderGroup('Other', other, 'var(--text-muted)')}
   `;
-  drawer.classList.add('active');
-}
+    drawer.classList.add('active');
+  }
 
   closeDrawer() {
     document.getElementById('dayDrawer')?.classList.remove('active');
@@ -2112,7 +2188,7 @@ class MoneyTrackerApp {
     const stats = document.getElementById('debtStats');
     if (stats) stats.innerHTML = `
       <div class="stat-card"><div class="stat-label">Total Outstanding Debt</div>
-        <div class="stat-value mono" style="color:var(--accent-negative)">$${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+        <div class="stat-value mono" style="color:var(--accent-negative)">$${total.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
         <div class="stat-subtext">${loans.length} active loan(s)</div></div>`;
 
     const list = document.getElementById('loanList');
@@ -2147,7 +2223,7 @@ class MoneyTrackerApp {
                 </div>
                 <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
                   <span class="mono" style="font-weight:700; font-size:1.05rem; color:var(--accent-negative);">
-                    $${bal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                    $${bal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <button class="btn btn-sm" data-action="openEditLoanModal" data-loan-id="${l.id}">⚙️</button>
                 </div>
@@ -2155,15 +2231,15 @@ class MoneyTrackerApp {
               <div style="background:var(--bg-base); border:1px solid var(--border-subtle); border-radius:var(--radius-sm); padding:0.6rem 0.75rem; font-size:0.8rem;">
                 <div style="display:flex; justify-content:space-between; margin-bottom:0.35rem;">
                   <span style="color:var(--text-muted); font-size:0.75rem; letter-spacing:0.04em; text-transform:uppercase;">Monthly Payment</span>
-                  <span class="mono" style="font-weight:700; font-size:0.9rem;">$${totalPmt.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                  <span class="mono" style="font-weight:700; font-size:0.9rem;">$${totalPmt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; padding-left:0.75rem; font-size:0.75rem; margin-bottom:0.2rem;">
                   <span style="color:var(--text-dim);">├─ Principal &amp; Interest</span>
-                  <span class="mono" style="color:var(--accent-primary); font-weight:600;">$${piDisplay.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                  <span class="mono" style="color:var(--accent-primary); font-weight:600;">$${piDisplay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
                 <div style="display:flex; justify-content:space-between; padding-left:0.75rem; font-size:0.75rem;">
                   <span style="color:var(--text-dim);">└─ Escrow (taxes + insurance)</span>
-                  <span class="mono" style="color:var(--text-muted);">$${escrow.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+                  <span class="mono" style="color:var(--text-muted);">$${escrow.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 </div>
               </div>
             </div>`;
@@ -2187,7 +2263,7 @@ class MoneyTrackerApp {
       <div style="margin-bottom:1rem;">
         <label class="stat-label">Loan</label>
         <select id="simLoanSelect" onchange="app.onSimLoanChange()">
-          ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} — $${(parseFloat(l.balance)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</option>`).join('')}
+          ${loans.map(l => `<option value="${l.id}">${this.escapeHtml(l.name)} — $${(parseFloat(l.balance) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</option>`).join('')}
         </select>
       </div>
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
@@ -2306,15 +2382,15 @@ class MoneyTrackerApp {
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">MONTH 1 BREAKDOWN</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Your payment</span>
-          <span class="mono" style="font-weight:600;">$${(pi + extra).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="font-weight:600;">$${(pi + extra).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">├─ Goes to interest</span>
-          <span class="mono" style="color:var(--accent-negative);">$${interestMonth1.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="color:var(--accent-negative);">$${interestMonth1.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">└─ Goes to principal</span>
-          <span class="mono" style="color:var(--accent-positive);">$${(principalMonth1 + extra).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="color:var(--accent-positive);">$${(principalMonth1 + extra).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>
 
@@ -2322,11 +2398,11 @@ class MoneyTrackerApp {
         <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.6rem;">LIFETIME TOTALS</div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Total you'll pay</span>
-          <span class="mono" style="font-weight:600;">$${totalPaid.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="font-weight:600;">$${totalPaid.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Total interest</span>
-          <span class="mono" style="color:var(--accent-negative); font-weight:600;">$${result.totalInterest.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="color:var(--accent-negative); font-weight:600;">$${result.totalInterest.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.8rem; padding:0.15rem 0; border-top:1px solid var(--border-subtle); margin-top:0.4rem; padding-top:0.5rem;">
           <span style="color:var(--text-dim);">Interest as % of loan</span>
@@ -2343,11 +2419,11 @@ class MoneyTrackerApp {
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Payoff sooner by</span>
-          <span class="mono" style="color:var(--accent-positive); font-weight:700;">${monthsSaved} mo (${(monthsSaved/12).toFixed(1)} yr)</span>
+          <span class="mono" style="color:var(--accent-positive); font-weight:700;">${monthsSaved} mo (${(monthsSaved / 12).toFixed(1)} yr)</span>
         </div>
         <div style="display:flex; justify-content:space-between; font-size:0.85rem; padding:0.15rem 0;">
           <span style="color:var(--text-muted);">Interest saved</span>
-          <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+          <span class="mono" style="color:var(--accent-positive); font-weight:700;">$${interestSaved.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
         </div>
       </div>` : `
       <div style="margin-top:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); padding:0.75rem 1rem; font-size:0.8rem; color:var(--text-muted); text-align:center;">
@@ -2624,7 +2700,7 @@ class MoneyTrackerApp {
               <div style="display:flex; justify-content:space-between; align-items:center; margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border-subtle);">
                 <span style="font-size:0.8rem; color:var(--text-muted);">Total Required Payment</span>
                 <span id="loanTotalDisplay" class="mono" style="font-size:1rem; font-weight:700; color:var(--accent-primary);">
-                  $${totalDisplay.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}
+                  $${totalDisplay.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               </div>
             </div>
@@ -3224,7 +3300,7 @@ class MoneyTrackerApp {
       else if (this.currentTab === 'debts') this.renderDebtSimulation();
       else if (this.currentTab === 'forecaster') this.renderForecasterChart();
       else if (this.currentTab === 'apy') this.renderAPY();
-    } catch(e) { console.error("Chart error:", e); }
+    } catch (e) { console.error("Chart error:", e); }
   }
 
   renderCheckingChart() {
@@ -3293,7 +3369,7 @@ class MoneyTrackerApp {
     ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'center';
     const maxL = Math.floor((rect.width - 70) / 60);
     const step = Math.max(1, Math.ceil(pts.length / maxL));
-    const mn = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     for (let i = 0; i < pts.length; i += step) {
       const d = new Date(pts[i].date);
       const lbl = range === 'year' ? mn[d.getMonth()] : `${d.getMonth() + 1}/${d.getDate()}`;
@@ -3376,7 +3452,7 @@ class MoneyTrackerApp {
     ctx.fillStyle = '#5a5e6b'; ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'center';
     const maxL = Math.floor((rect.width - 70) / 60);
     const step = Math.max(1, Math.ceil(pts.length / maxL));
-    const mn = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const mn = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     for (let i = 0; i < pts.length; i += step) {
       const d = new Date(pts[i].date);
       const lbl = range === 'year' ? mn[d.getMonth()] : `${d.getMonth() + 1}/${d.getDate()}`;
@@ -3512,7 +3588,7 @@ class MoneyTrackerApp {
   /* ============================================================
      RULES MODAL — priority + exclude UI
      ============================================================ */
-    openRulesModal() {
+  openRulesModal() {
     const rules = this.state.customRules || [];
     const editingIndex = this.editingRuleIndex;
     const editRule = (editingIndex != null && rules[editingIndex]) ? rules[editingIndex] : null;
@@ -3524,22 +3600,20 @@ class MoneyTrackerApp {
     const matchType = editRule?.matchType || 'contains';
 
     const ruleRow = (r, i) => `
-      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
-        <div style="display:flex; align-items:center; gap:0.5rem; min-width:0; flex:1;">
-          <span class="mono" style="font-size:0.75rem; color:var(--text-muted); background:var(--bg-elevated); padding:2px 6px; border-radius:4px; flex-shrink:0;">#${i + 1}</span>
-          <div style="min-width:0; line-height: 1.4;">
-            <span class="badge badge-posted" style="font-size:0.6rem; background:var(--bg-hover); border:1px solid var(--border-subtle);">${matchLabels[r.matchType] || 'Contains'}</span>
-            <strong style="font-family:var(--font-mono); font-size:0.8rem; margin-left:4px;">${this.escapeHtml(r.searchPattern)}</strong>
-            ${r.doesNotContain ? `<span class="badge" style="background:rgba(255,61,113,0.1); color:var(--accent-negative); border:1px solid rgba(255,61,113,0.3); margin-left:6px; font-size:0.65rem;">≠ ${this.escapeHtml(r.doesNotContain)}</span>` : ''}
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:2px;">
-              ${r.nickname ? `Nickname: <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span>` : ''}
-              ${r.category ? ` &middot; Category: <span class="badge badge-posted" style="font-size:0.65rem;">${this.escapeHtml(r.category)}</span>` : ''}
-            </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
+        <div style="display:flex; align-items:flex-start; gap:0.5rem; min-width:0; flex:1;">
+          <span class="mono" style="font-size:0.7rem; color:var(--text-muted); background:var(--bg-elevated); padding:2px 6px; border-radius:4px; flex-shrink:0;">#${i + 1}</span>
+          <div style="min-width:0;">
+            <span class="badge badge-posted" style="font-size:0.6rem;">${matchLabels[r.matchType] || 'Contains'}</span>
+            <strong style="font-family:var(--font-mono); font-size:0.8rem;">${this.escapeHtml(r.searchPattern)}</strong>
+            ${r.doesNotContain ? `<span class="badge" style="background:rgba(255,61,113,0.15); color:var(--accent-negative); border:1px solid rgba(255,61,113,0.4); margin-left:4px; font-size:0.6rem;">≠ ${this.escapeHtml(r.doesNotContain)}</span>` : ''}
+            ${r.nickname ? ` → <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span>` : ''}
+            ${r.category ? ` <span class="badge badge-posted" style="margin-left:4px;">${this.escapeHtml(r.category)}</span>` : ''}
           </div>
         </div>
         <div style="display:flex; gap:2px; flex-shrink:0;">
-          <button class="btn btn-sm" data-action="moveRuleUp" data-index="${i}" ${i === 0 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move up">↑</button>
-          <button class="btn btn-sm" data-action="moveRuleDown" data-index="${i}" ${i === rules.length - 1 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move down">↓</button>
+          <button class="btn btn-sm" data-action="moveRuleUp" data-index="${i}" ${i === 0 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move up (higher priority)">↑</button>
+          <button class="btn btn-sm" data-action="moveRuleDown" data-index="${i}" ${i === rules.length - 1 ? 'disabled style="opacity:0.3; cursor:not-allowed;"' : ''} title="Move down (lower priority)">↓</button>
           <button class="btn btn-sm" data-action="editRule" data-index="${i}" title="Edit rule">✏️</button>
           <button class="btn btn-sm btn-danger" data-action="deleteRule" data-index="${i}" title="Delete rule">🗑️</button>
         </div>
@@ -3548,45 +3622,44 @@ class MoneyTrackerApp {
 
     this.openModal(`
       <div class="modal-overlay active">
-        <div class="modal" style="max-width:750px;">
+        <div class="modal" style="max-width:780px;">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h2 style="font-size:1.2rem; font-weight:700;">⚙ Active Rules</h2>
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
 
-          <details style="margin-bottom:1rem; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); padding:0.5rem 0.85rem;">
-            <summary style="font-size:0.8rem; font-weight:600; color:var(--accent-primary); cursor:pointer; user-select:none;">💡 How Priority & "Does Not Contain" works</summary>
-            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.5rem; line-height:1.5;">
-              Rules check top-to-bottom. The <strong>first match wins</strong>. Use the ↑/↓ buttons to reorder.<br>
-              Use <strong>Does Not Contain</strong> to block a rule if the description has an unwanted phrase. (e.g. To stop "Roundup * SONIC" from becoming Dining, add "ROUNDUP" to the Does Not Contain box for the SONIC rule, and put the ROUNDUP rule at the bottom).
-            </div>
-          </details>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; padding:0.6rem 0.85rem; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); line-height:1.5;">
+            <strong style="color:var(--accent-primary);">Priority order — first match wins.</strong>
+            Rules are checked top-to-bottom. Use <strong>↑ / ↓</strong> to reorder.
+            Use <strong>Does Not Contain</strong> to skip a rule when the description has an unwanted phrase
+            (e.g. "Contains DONUT, Does Not Contain ROUNDUP").
+          </div>
 
           <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
             <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">${editRule ? '✏️ EDIT RULE' : '+ ADD NEW RULE'}</div>
             <input type="hidden" id="editingRuleIndex" value="${editingIndex != null ? editingIndex : ''}">
-            
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
-              <div><label class="stat-label">Search Text</label><input type="text" id="newRuleSearch" value="${editRule ? this.escapeHtml(editRule.searchPattern) : ''}" placeholder="e.g. TMOBILE"></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+              <div><label class="stat-label">Search Text</label><input type="text" id="newRuleSearch" value="${editRule ? this.escapeHtml(editRule.searchPattern) : ''}" placeholder="e.g. DONUT"></div>
               <div>
                 <label class="stat-label">Match Type</label>
                 <select id="newRuleMatchType">
-                  ${['contains','exact','begins','ends'].map(v =>
-                    `<option value="${v}" ${matchType === v ? 'selected' : ''}>${matchLabels[v]}</option>`
-                  ).join('')}
+                  ${['contains', 'exact', 'begins', 'ends'].map(v =>
+      `<option value="${v}" ${matchType === v ? 'selected' : ''}>${matchLabels[v]}</option>`
+    ).join('')}
                 </select>
               </div>
-              <div>
-                <label class="stat-label">Does Not Contain (Optional)</label>
-                <input type="text" id="newRuleExclude" value="${editRule ? this.escapeHtml(editRule.doesNotContain || '') : ''}" placeholder="e.g. ROUNDUP">
+            </div>
+            <div style="margin-bottom:0.5rem;">
+              <label class="stat-label">Does Not Contain (Optional)</label>
+              <input type="text" id="newRuleExclude" value="${editRule ? this.escapeHtml(editRule.doesNotContain || '') : ''}" placeholder="e.g. ROUNDUP — blocks this rule if the description contains this phrase">
+              <div style="font-size:0.65rem; color:var(--text-dim); margin-top:3px;">
+                Skip this rule whenever the description (or nickname) contains this phrase.
               </div>
             </div>
-            
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.75rem;">
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
               <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname" value="${editRule ? this.escapeHtml(editRule.nickname || '') : ''}"></div>
               <div><label class="stat-label">Category (Optional)</label><select id="newRuleCategory">${catOpts}</select></div>
             </div>
-            
             <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
               ${editRule ? `<button class="btn btn-sm" data-action="cancelRuleEdit">Cancel</button>` : ''}
               <button class="btn btn-primary btn-sm" data-action="addNewRule">${editRule ? 'Update Rule' : 'Add Rule'}</button>
@@ -3596,11 +3669,11 @@ class MoneyTrackerApp {
           <div>
             <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">
               Saved Rules
-              <span style="font-size:0.7rem; font-weight:400; color:var(--text-muted);">(first match wins)</span>
+              <span style="font-size:0.7rem; font-weight:400; color:var(--text-muted);">(priority order — first match wins)</span>
             </h3>
             ${rules.length === 0
-              ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>'
-              : rules.map(ruleRow).join('')}
+        ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>'
+        : rules.map(ruleRow).join('')}
           </div>
         </div>
       </div>`);
@@ -3622,15 +3695,15 @@ class MoneyTrackerApp {
 
     if (editingIndex != null && this.state.customRules[editingIndex]) {
       const r = this.state.customRules[editingIndex];
-      r.searchPattern  = pattern;
-      r.matchType      = matchType;
+      r.searchPattern = pattern;
+      r.matchType = matchType;
       r.doesNotContain = doesNotContain;
-      r.nickname       = nickname;
-      r.category       = category;
+      r.nickname = nickname;
+      r.category = category;
     } else {
       this.state.customRules = this.state.customRules.filter(
         r => !(r.searchPattern.toLowerCase() === pattern.toLowerCase() &&
-               (r.matchType || 'contains') === matchType)
+          (r.matchType || 'contains') === matchType)
       );
       this.state.customRules.push({ searchPattern: pattern, nickname, category, matchType, doesNotContain });
     }
@@ -3692,16 +3765,16 @@ class MoneyTrackerApp {
     let str = String(s).trim().replace(/"/g, '');
     if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
     let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+    if (m) return `${m[3]}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
     m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
     if (m) {
       const yy = parseInt(m[3]);
       const year = yy >= 70 ? 1900 + yy : 2000 + yy;
-      return `${year}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+      return `${year}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`;
     }
     const d = new Date(str);
     if (!isNaN(d.getTime())) {
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     }
     return str;
   }
@@ -4095,9 +4168,9 @@ class MoneyTrackerApp {
     const matches = (text) => {
       if (!text) return false;
       const t = text.toLowerCase();
-      if (matchType === 'exact')  return t === q;
+      if (matchType === 'exact') return t === q;
       if (matchType === 'begins') return t.startsWith(q);
-      if (matchType === 'ends')   return t.endsWith(q);
+      if (matchType === 'ends') return t.endsWith(q);
       return t.includes(q);
     };
 
@@ -4230,12 +4303,12 @@ class MoneyTrackerApp {
         <div>
           <label class="stat-label">Loan</label>
           <select id="scenarioLoanInput" onchange="app.onScenarioLoanChange()">
-            ${loans.map(x => `<option value="${x.id}">${this.escapeHtml(x.name)} — $${(parseFloat(x.balance)||0).toFixed(2)}</option>`).join('')}
+            ${loans.map(x => `<option value="${x.id}">${this.escapeHtml(x.name)} — $${(parseFloat(x.balance) || 0).toFixed(2)}</option>`).join('')}
           </select>
         </div>
         <div style="margin-top:0.5rem;">
           <label class="stat-label">Balance ($)</label>
-          <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance)||0).toFixed(2)}">
+          <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance) || 0).toFixed(2)}">
         </div>
         <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.5rem; margin-top:0.5rem;">
           <div>
