@@ -1,6 +1,6 @@
 /* =========================================
-   MONEY TRACKER APP - STEP 5
-   Redesigned Debt Payoff Page + Scenario Types
+   MONEY TRACKER APP - STEP 5 (REVIEWED)
+   Full corrected build — see changelog in project notes.
    ========================================= */
 
 const CATEGORIES = ["Income","Groceries","Dining","Bills and Utilities","Subscriptions","Transfers","Transportation","Shopping","Health","Entertainment","Fees and Interest","Miscellaneous"];
@@ -32,20 +32,19 @@ const CATEGORY_RULES = [
   { contains: "ROUNDUP", category: "Transfers", flow: "Internal Transfer" },
   { contains: "VAULT", category: "Transfers", flow: "Internal Transfer" },
   { contains: "INTEREST", category: "Income", flow: "Income" },
-  { contains: "DEPOSIT", category: "Income", flow: "Income" },
-  { contains: "PIONEER", category: "Income", flow: "Income" },
   { contains: "WAL-MART", category: "Groceries", flow: "Flexible Spending" },
   { contains: "WALMART", category: "Groceries", flow: "Flexible Spending" },
   { contains: "SUPERMARKET", category: "Groceries", flow: "Flexible Spending" },
   { contains: "MCDONALD", category: "Dining", flow: "Flexible Spending" },
   { contains: "SONIC", category: "Dining", flow: "Flexible Spending" },
+  { contains: "DONUT", category: "Dining", flow: "Flexible Spending" },
+  { contains: "PIZZA", category: "Dining", flow: "Flexible Spending" },
+  { contains: "TACO", category: "Dining", flow: "Flexible Spending" },
+  { contains: "BURGER", category: "Dining", flow: "Flexible Spending" },
   { contains: "RESTAURANT", category: "Dining", flow: "Flexible Spending" },
   { contains: "T-MOBILE", category: "Bills and Utilities", flow: "Fixed Bill" },
   { contains: "TMOBILE", category: "Bills and Utilities", flow: "Fixed Bill" },
-  { contains: "OKLAHOMA NATURAL", category: "Bills and Utilities", flow: "Fixed Bill" },
-  { contains: "US BANK", category: "Bills and Utilities", flow: "Fixed Bill" },
   { contains: "MORTGAGE", category: "Bills and Utilities", flow: "Fixed Bill" },
-  { contains: "CREDIT UNION", category: "Bills and Utilities", flow: "Fixed Bill" },
   { contains: "SPOTIFY", category: "Subscriptions", flow: "Fixed Bill" },
   { contains: "PARAMOUNT", category: "Subscriptions", flow: "Fixed Bill" },
   { contains: "APPLE", category: "Subscriptions", flow: "Fixed Bill" },
@@ -88,7 +87,7 @@ const INITIAL_EMPTY_STATE = {
   },
   vaults: [], pendingItems: [], transactions: [],
   scenarios: [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }],
-  suggestedVaults: [], nicknameRules: [], loans: [],
+  suggestedVaults: [], nicknameRules: [], customRules: [], loans: [],
   taxStates: JSON.parse(JSON.stringify(DEFAULT_TAX_STATES)),
   selectedState: 'OK'
 };
@@ -129,6 +128,8 @@ class MoneyTrackerApp {
     this.editingStateCode = null;
     this._piManual = false;
     this._settingsTab = 'profiles';
+    this.editingRulePattern = null;
+    this._eventsBound = false; // Fix #1: guard against double-binding
   }
 
   /* ============ STORAGE HEALTH / TRIM ============ */
@@ -244,7 +245,7 @@ class MoneyTrackerApp {
     }
     return this.calculateStorageBytes() / this.getStorageLimitBytes() < 0.85;
   }
-  
+
   /* ============================================================
      PROFILES, BACKUP, THEME
      ============================================================ */
@@ -278,7 +279,9 @@ class MoneyTrackerApp {
     });
   }
 
-  switchProfile(name) {
+  /* Fix #6: accept string OR element with data-profile */
+  switchProfile(nameOrBtn) {
+    const name = typeof nameOrBtn === 'string' ? nameOrBtn : nameOrBtn?.dataset?.profile;
     if (!name || name === this.activeProfile) return;
     const profiles = this.loadProfiles();
     if (!profiles[name]) { this.showToast(`Profile "${name}" not found`); return; }
@@ -290,8 +293,10 @@ class MoneyTrackerApp {
     this.state = target.state;
     localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', name);
 
+    // Fix #3: expand recurring templates before re-rendering
+    this.expandRecurringTemplates();
     this.recalculateBalances();
-    this.applyNicknameRules();
+    this.applyCustomRules();
     this.cleanSpotify();
     this.recalculateLoanBalances();
     this.renderTabContent(this.currentTab);
@@ -328,7 +333,9 @@ class MoneyTrackerApp {
     this.openSettingsModal('home');
   }
 
-  deleteProfile(name) {
+  /* Fix #6: accept string OR element with data-profile */
+  deleteProfile(nameOrBtn) {
+    const name = typeof nameOrBtn === 'string' ? nameOrBtn : nameOrBtn?.dataset?.profile;
     if (name === this.activeProfile) {
       this.showToast('Cannot delete the active profile. Switch to another first.');
       return;
@@ -338,11 +345,11 @@ class MoneyTrackerApp {
 
     const profiles = this.loadProfiles();
     delete profiles[name];
-    
+
     if (this.saveProfiles(profiles)) {
       this.showToast(`Deleted "${name}"`);
     }
-    this.openSettingsModal('home'); 
+    this.openSettingsModal('home');
   }
 
   exportProfile(name) {
@@ -403,7 +410,8 @@ class MoneyTrackerApp {
       parsed.pendingItems = parsed.pendingItems || [];
       parsed.transactions = parsed.transactions || [];
       parsed.loans = parsed.loans || [];
-      parsed.nicknameRules = parsed.nicknameRules || [];
+      parsed.customRules = parsed.customRules || parsed.nicknameRules || [];
+      parsed.customRules.forEach(r => { if (!r.category) r.category = ''; });
 
       const profiles = this.loadProfiles();
       let finalName = rawName;
@@ -424,8 +432,11 @@ class MoneyTrackerApp {
       if (!this.saveProfiles(profiles)) return;
 
       if (finalName === this.activeProfile) {
+        // Fix #3: expand + apply rules on import-over-active
         this.state = parsed;
+        this.expandRecurringTemplates();
         this.recalculateBalances();
+        this.applyCustomRules();
         this.renderTabContent(this.currentTab);
         this.closeModal();
         this.showToast(`Imported "${finalName}" (Refreshed)`);
@@ -462,24 +473,24 @@ class MoneyTrackerApp {
 
     if (screen === 'home') {
       const profileNames = Object.keys(profiles).sort();
-      
+
       body = `
         <div style="background:linear-gradient(135deg, var(--bg-surface) 0%, var(--bg-base) 100%); border:1px solid var(--border-glow); border-radius:var(--radius-lg); padding:1.5rem; margin-bottom:1.5rem; box-shadow:var(--shadow-glow);">
           <div class="stat-label" style="font-size:0.75rem; letter-spacing:0.1em; margin-bottom:0.25rem;">ACTIVE PROFILE</div>
           <div style="font-size:1.8rem; font-weight:800; color:var(--accent-primary); line-height:1.1; text-shadow:0 0 20px rgba(0,229,255,0.2);">${this.escapeHtml(this.activeProfile)}</div>
           <div style="font-size:0.8rem; color:var(--text-muted); margin-top:4px;">Last saved: ${savedAt}</div>
-          
+
           <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
             <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">MANAGE PROFILES</div>
             <div style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y:auto; padding-right:4px;">
               ${profileNames.map(p => `
                 <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid ${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--border-subtle)'};">
                   <span style="font-weight:600; font-size:0.85rem; color:${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--text-main)'}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:50%;">${this.escapeHtml(p)}</span>
-                  ${p === this.activeProfile 
-                    ? `<span class="badge badge-posted" style="background:rgba(0,229,255,0.1); color:var(--accent-primary);">ACTIVE</span>` 
+                  ${p === this.activeProfile
+                    ? `<span class="badge badge-posted" style="background:rgba(0,229,255,0.1); color:var(--accent-primary);">ACTIVE</span>`
                     : `<div style="display:flex; gap:0.4rem;">
-                         <button class="btn btn-sm" onclick="app.switchProfile('${p}')">Switch</button>
-                         <button class="btn btn-sm btn-danger" onclick="app.deleteProfile('${p}')" title="Delete Profile">🗑</button>
+                         <button class="btn btn-sm" data-action="switchProfile" data-profile="${this.escapeHtml(p)}">Switch</button>
+                         <button class="btn btn-sm btn-danger" data-action="deleteProfile" data-profile="${this.escapeHtml(p)}" title="Delete Profile">🗑</button>
                        </div>`
                   }
                 </div>
@@ -673,7 +684,7 @@ class MoneyTrackerApp {
     this.openSettingsModal('appearance');
     this.showToast('Theme reset to defaults');
   }
-  
+
   calculateStorageBytes() {
     let total = 0;
     for (let i = 0; i < localStorage.length; i++) {
@@ -689,7 +700,7 @@ class MoneyTrackerApp {
     const isFirefox = navigator.userAgent.toLowerCase().includes('firefox');
     return isFirefox ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
   }
-  
+
   loadStateSafe() {
     let profiles = {};
     try { profiles = JSON.parse(localStorage.getItem('MONEY_TRACKER_PROFILES')) || {}; }
@@ -728,7 +739,7 @@ class MoneyTrackerApp {
     s.vaults = s.vaults || [];
     s.vaults.forEach(v => {
       if (v.startingBalance === undefined) {
-        v.startingBalance = parseFloat(v.balance) || 0; // Anchor existing vaults
+        v.startingBalance = parseFloat(v.balance) || 0;
       }
     });
     s.pendingItems = s.pendingItems || [];
@@ -736,7 +747,12 @@ class MoneyTrackerApp {
     s.scenarios = s.scenarios || [];
     s.scenarios.forEach(x => { if (!x.type) x.type = 'custom'; });
     s.suggestedVaults = s.suggestedVaults || [];
-    s.nicknameRules = s.nicknameRules || [];
+
+    // Migrate nicknameRules to customRules
+    s.customRules = s.customRules || s.nicknameRules || [];
+    s.customRules.forEach(r => { if (!r.category) r.category = ''; });
+    delete s.nicknameRules;
+
     s.loans = s.loans || [];
     s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
     if (s.accounts.CHECKING) s.accounts.CHECKING.name = s.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
@@ -759,6 +775,7 @@ class MoneyTrackerApp {
     return s;
   }
 
+  /* Fix #4: honor cfg.count as a synthetic endType='count' */
   expandRecurringTemplates() {
     const templates = this.state.transactions.filter(
       t => t.status === 'estimated' && t.isTemplate
@@ -774,8 +791,9 @@ class MoneyTrackerApp {
       const cfg       = tmpl.ruleConfig || { interval: 1, freq: 'months' };
       const interval  = Math.max(1, cfg.interval || 1);
       const freq      = cfg.freq || 'months';
-      const endType   = cfg.endType || 'forever';
-      const endVal    = cfg.endVal;
+      // Fix #4: fall back to legacy `count` field as endType='count'
+      const endType   = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+      const endVal    = cfg.endVal != null ? cfg.endVal : cfg.count;
       const maxMonths = Math.max(1, Math.min(cfg.maxMonths || 32, 32));
 
       const startDate = new Date(tmpl.date + 'T00:00:00');
@@ -868,7 +886,7 @@ class MoneyTrackerApp {
     this.expandRecurringTemplates();
     this.applyTheme({ ...DEFAULT_THEME, ...this.theme });
     this.recalculateBalances();
-    this.applyNicknameRules();
+    this.applyCustomRules();
     this.cleanSpotify();
     this.recalculateLoanBalances();
     this.renderTabContent(this.currentTab);
@@ -877,7 +895,11 @@ class MoneyTrackerApp {
     setTimeout(() => this._flushState(), 100);
   }
 
+  /* Fix #1: guard against double-binding */
   bindGlobalEvents() {
+    if (this._eventsBound) return;
+    this._eventsBound = true;
+
     document.getElementById('tabStrip').addEventListener('click', (e) => {
       const btn = e.target.closest('.tab-btn');
       if (btn) this.switchTab(btn.dataset.tab);
@@ -981,7 +1003,8 @@ class MoneyTrackerApp {
       if (tabId === 'paycheck') this.calculatePaycheck();
       if (tabId === 'calendar') this.renderCalendarView();
       if (tabId === 'forecaster') this.renderForecaster();
-      if (tabId === 'apy') this.renderAPY();
+      // Fix: sync APY principal from source before drawing
+      if (tabId === 'apy') this.updateApySource();
     } catch (e) {
       console.error("Tab render error:", e);
       this.showToast("Render error. Check console.");
@@ -997,7 +1020,7 @@ class MoneyTrackerApp {
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Checking Balance History</h3>
             <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts">🔄</button>
+              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm chart-mode-btn active-mode" data-chart-range="week">week</button>
                 <button class="btn btn-sm chart-mode-btn" data-chart-range="month">month</button>
@@ -1009,26 +1032,27 @@ class MoneyTrackerApp {
         </div>
         <div class="table-toolbar">
           <div class="search-box">
-            <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}">
+            <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}" title="Search by description, nickname, or category">
           </div>
           <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-            <button class="btn btn-sm" data-action="toggleDensity">Toggle Density</button>
-            <button class="btn btn-sm" data-action="openMassEditModal">Mass Edit</button>
-            <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING">📥 Import CSV</button>
-            <button class="btn btn-sm btn-primary" data-action="openAddPendingModal">+ Add Pending</button>
+            <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
+            <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
+            <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
+            <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
+            <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
           </div>
         </div>
         <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
           <table id="checkingTable">
             <thead><tr>
-              <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect"></th>
+              <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
               <th data-sort="date">Date ${this.sortArrow('date')}</th>
               <th data-sort="description">Description ${this.sortArrow('description')}</th>
               <th data-sort="category">Category ${this.sortArrow('category')}</th>
               <th>Flow</th>
               <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
               <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
-              <th>Status</th><th>Lock</th>
+              <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
             </tr></thead>
             <tbody id="checkingTableBody"></tbody>
           </table>
@@ -1044,7 +1068,7 @@ class MoneyTrackerApp {
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Vault Balances</h3>
             <div style="display:flex; gap:0.5rem;">
-              <button class="btn btn-sm" data-action="recalculateVaultsAndSync" title="Scans history and fixes balances">🔄 Sync Vaults</button>
+              <button class="btn btn-sm" data-action="recalculateVaultsAndSync" title="Scan history and fix vault balances based on imported transactions">🔄 Sync Vaults</button>
               <button class="btn btn-sm btn-primary" data-action="openVaultModal">+ New Vault</button>
             </div>
           </div>
@@ -1053,7 +1077,7 @@ class MoneyTrackerApp {
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Savings Ledger</h3>
-            <button class="btn btn-sm" data-action="openImportWizard" data-account="SAVINGS">📥 Import CSV</button>
+            <button class="btn btn-sm" data-action="openImportWizard" data-account="SAVINGS" title="Import bank CSV file">📥 Import CSV</button>
           </div>
           <div class="table-container" style="border:none;">
             <table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
@@ -1071,7 +1095,7 @@ class MoneyTrackerApp {
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Total Household Position Trend</h3>
             <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts">🔄</button>
+              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm chart-mode-btn active-mode" data-networth-range="week">week</button>
                 <button class="btn btn-sm chart-mode-btn" data-networth-range="month">month</button>
@@ -1110,7 +1134,7 @@ class MoneyTrackerApp {
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">What-If Payoff Simulator</h3>
-              <button class="btn btn-sm" data-action="renderCharts">🔄</button>
+              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
             </div>
             <div id="loanSimControls"></div>
             <div id="loanSimResults"></div>
@@ -1120,17 +1144,18 @@ class MoneyTrackerApp {
       </section>`;
   }
 
+  /* Fix #5: default hourly rate = 17 */
   tplPaycheck() {
-  const stateOpts = this.state.taxStates.map(s =>
-    `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
-  ).join('');
-  return `
+    const stateOpts = this.state.taxStates.map(s =>
+      `<option value="${s.code}" ${s.code === this.state.selectedState ? 'selected' : ''}>${this.escapeHtml(s.name)} (${s.code})</option>`
+    ).join('');
+    return `
     <section class="view-container active">
       <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
         <div class="card">
           <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Income Details</h3>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="0" oninput="app.debouncedPaycheck()"></div>
+            <div><label class="stat-label">Hourly Rate ($)</label><input type="number" id="payHourlyRate" value="17" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Hours per Week</label><input type="number" id="payHours" value="40" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Days per Week</label><input type="number" id="payDays" value="5" oninput="app.debouncedPaycheck()"></div>
             <div><label class="stat-label">Weeks per Year</label><input type="number" id="payWeeks" value="52" oninput="app.debouncedPaycheck()"></div>
@@ -1224,7 +1249,7 @@ class MoneyTrackerApp {
           <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; flex-wrap:wrap; gap:0.5rem;">
             <h4 style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">PROJECTION</h4>
             <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts">🔄</button>
+              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm chart-mode-btn active-mode" data-forecaster-range="week">week</button>
                 <button class="btn btn-sm chart-mode-btn" data-forecaster-range="month">month</button>
@@ -1261,7 +1286,7 @@ class MoneyTrackerApp {
           <div class="card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">Compound Interest Projection</h3>
-              <button class="btn btn-sm" data-action="renderCharts">🔄</button>
+              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
             </div>
             <canvas id="apyChart" height="220" style="width:100%; display:block;"></canvas>
             <div id="apySummary" style="margin-top:1rem; font-size:0.9rem;"></div>
@@ -1316,7 +1341,7 @@ class MoneyTrackerApp {
     const escrow = parseFloat(loan.escrow) || 0;
     const derived = Math.max(0, total - escrow);
     if (derived > 0) return derived;
-    
+
     const totalMonths = this.getLoanMonths(loan);
     return this.calculatePI(parseFloat(loan.balance) || 0, parseFloat(loan.rate) || 0, totalMonths);
   }
@@ -1374,8 +1399,16 @@ class MoneyTrackerApp {
       );
     }
 
+    // Fix: description sort uses nickname||description
     items.sort((a, b) => {
-      let va = a[this.sortState.col], vb = b[this.sortState.col];
+      let va, vb;
+      if (this.sortState.col === 'description') {
+        va = a.nickname || a.description || '';
+        vb = b.nickname || b.description || '';
+      } else {
+        va = a[this.sortState.col];
+        vb = b[this.sortState.col];
+      }
       if (this.sortState.col === 'amount' || this.sortState.col === 'balance') {
         va = parseFloat(va) || 0; vb = parseFloat(vb) || 0;
       }
@@ -1384,8 +1417,10 @@ class MoneyTrackerApp {
       return 0;
     });
 
+    // Fix: select-all ignores read-only pending rows
+    const selectable = items.filter(t => t.status !== 'pending');
     const header = document.getElementById('checkingHeaderSelect');
-    if (header) header.checked = items.length > 0 && items.every(i => this.selectedRows.has(i.id));
+    if (header) header.checked = selectable.length > 0 && selectable.every(i => this.selectedRows.has(i.id));
 
     const limit = 500;
     const display = items.slice(0, limit);
@@ -1396,27 +1431,42 @@ class MoneyTrackerApp {
     tbody.innerHTML = html;
   }
 
+  /* Fix #7: pending rows are read-only */
   buildCheckingRow(t) {
     const isPending = t.status === 'pending';
     const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
     const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
-    const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
     const dn = t.nickname
       ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
       : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
 
+    if (isPending) {
+      return `<tr data-tx-row="${t.id}">
+        <td></td>
+        <td class="mono">${t.date}</td>
+        <td>${dn}</td>
+        <td><span style="font-size:0.75rem; color:var(--text-muted)">${this.escapeHtml(t.category || '—')}</span></td>
+        <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
+        <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
+        <td class="mono" style="color:var(--text-muted)" title="Pending items don't have a posted balance">—</td>
+        <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
+        <td></td>
+      </tr>`;
+    }
+
+    const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
     return `<tr data-tx-row="${t.id}">
       <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
       <td class="mono">${t.date}</td>
       <td>${dn}</td>
-      <td><div class="cat-select-wrapper" style="--cat-bg:${colors.bg}; --cat-color:${colors.color}; --cat-border:${colors.border}; --cat-glow:${colors.glow};">
+      <td title="Manually changing this will lock the row from auto-rules."><div class="cat-select-wrapper" style="--cat-bg:${colors.bg}; --cat-color:${colors.color}; --cat-border:${colors.border}; --cat-glow:${colors.glow};">
         <select class="cat-select" data-tx-id="${t.id}">${catOpts}</select>
       </div></td>
       <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
       <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
       <td class="mono">$${(parseFloat(t.balance) || 0).toFixed(2)}</td>
-      <td><span class="badge ${isPending ? 'badge-pending' : 'badge-posted'}">${t.status || 'POSTED'}</span></td>
-      <td style="cursor:pointer;" data-toggle-lock="${t.id}">${t.locked ? '🔒' : '🔓'}</td>
+      <td><span class="badge badge-posted" title="Transaction has cleared.">${t.status || 'POSTED'}</span></td>
+      <td style="cursor:pointer;" data-toggle-lock="${t.id}" title="${t.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes'}">${t.locked ? '🔒' : '🔓'}</td>
     </tr>`;
   }
 
@@ -1442,8 +1492,8 @@ class MoneyTrackerApp {
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
               <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
-              <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}">💸</button>
-              <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}">⚙️</button>
+              <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}" title="Transfer money into this vault">💸</button>
+              <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}" title="Edit vault name or balance">⚙️</button>
             </div>
           </div>`).join('');
       }
@@ -1608,7 +1658,10 @@ class MoneyTrackerApp {
     const row = document.querySelector(`tr[data-tx-row="${id}"]`);
     if (row) {
       const lc = row.querySelector('[data-toggle-lock]');
-      if (lc) lc.innerText = tx.locked ? '🔒' : '🔓';
+      if (lc) {
+        lc.innerText = tx.locked ? '🔒' : '🔓';
+        lc.title = tx.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes';
+      }
     }
   }
 
@@ -1646,7 +1699,7 @@ class MoneyTrackerApp {
 
   recalculateVaultBalances() {
     if (!this.state.vaults) return;
-    
+
     // 1. Reset all vault balances to their starting balance
     this.state.vaults.forEach(v => {
       if (v.startingBalance === undefined) {
@@ -1667,11 +1720,11 @@ class MoneyTrackerApp {
       if (match) {
         vaultName = match[2].trim();
         amt = match[1].toUpperCase() === 'TO' ? Math.abs(t.amount) : -Math.abs(t.amount);
-      } 
+      }
       else if (desc.startsWith('Transfer to Vault: ')) {
         vaultName = desc.replace('Transfer to Vault: ', '').trim();
         amt = Math.abs(t.amount);
-      } 
+      }
       else if (desc.startsWith('Transfer from Vault: ')) {
         vaultName = desc.replace('Transfer from Vault: ', '').trim();
         amt = -Math.abs(t.amount);
@@ -1712,12 +1765,30 @@ class MoneyTrackerApp {
     });
   }
 
-  applyNicknameRules() {
-    if (!this.state.nicknameRules || !this.state.nicknameRules.length) return;
+  applyCustomRules() {
+    const rules = this.state.customRules || [];
+    if (!rules.length) return;
+
+    const matches = (text, pattern, matchType) => {
+      if (!text) return false;
+      const t = text.toLowerCase();
+      const p = pattern.toLowerCase();
+      if (matchType === 'exact')  return t === p;
+      if (matchType === 'begins') return t.startsWith(p);
+      if (matchType === 'ends')   return t.endsWith(p);
+      return t.includes(p);
+    };
+
     this.state.transactions.forEach(t => {
-      if (!t.nickname) {
-        const m = this.state.nicknameRules.find(r => t.description && t.description.toLowerCase().includes(r.searchPattern.toLowerCase()));
-        if (m) t.nickname = m.nickname;
+      if (t.locked) return;
+      if (!t.description) return;
+      const rule = rules.find(r =>
+        matches(t.description, r.searchPattern, r.matchType || 'contains') ||
+        matches(t.nickname, r.searchPattern, r.matchType || 'contains')
+      );
+      if (rule) {
+        if (rule.nickname) t.nickname = rule.nickname;
+        if (rule.category) t.category = rule.category;
       }
     });
   }
@@ -1728,10 +1799,19 @@ class MoneyTrackerApp {
     });
   }
 
+  /* Fix #9: respect matchType, return null for category-only rules */
   getMatchingNickname(desc) {
-    if (!desc || !this.state.nicknameRules) return null;
-    const m = this.state.nicknameRules.find(r => desc.toLowerCase().includes(r.searchPattern.toLowerCase()));
-    return m ? m.nickname : null;
+    if (!desc || !this.state.customRules) return null;
+    const t = desc.toLowerCase();
+    const rule = this.state.customRules.find(r => {
+      const p = r.searchPattern.toLowerCase();
+      const mt = r.matchType || 'contains';
+      if (mt === 'exact')  return t === p;
+      if (mt === 'begins') return t.startsWith(p);
+      if (mt === 'ends')   return t.endsWith(p);
+      return t.includes(p);
+    });
+    return rule && rule.nickname ? rule.nickname : null;
   }
 
   renderCalendarView() {
@@ -1950,7 +2030,7 @@ class MoneyTrackerApp {
             <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
             <div style="display:flex; justify-content:space-between; align-items:center;">
               <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
-              <span class="badge badge-posted">${t.category}</span>
+              <span class="badge badge-posted">${this.escapeHtml(t.category || '—')}</span>
             </div>
           </div>`).join('')}
       </div>`;
@@ -2015,11 +2095,11 @@ class MoneyTrackerApp {
           const totalPmt = parseFloat(l.minPayment) || 0;
           const escrow = parseFloat(l.escrow) || 0;
           const pi = Math.max(0, totalPmt - escrow);
-          
+
           const totalMonths = this.getLoanMonths(l);
           const autoPI = this.calculatePI(bal, rate, totalMonths);
           const piDisplay = pi > 0 ? pi : autoPI;
-          
+
           const filterDisplay = Array.isArray(l.paymentFilter) ? l.paymentFilter.join(', ') : (l.paymentFilter || '—');
 
           return `
@@ -2116,7 +2196,7 @@ class MoneyTrackerApp {
     const bal = parseFloat(loan.balance) || 0;
     const rate = parseFloat(loan.rate) || 0;
     const escrow = parseFloat(loan.escrow) || 0;
-    
+
     const totalMonths = this.getLoanMonths(loan);
 
     const monthlyInterest = bal * (rate / 100 / 12);
@@ -2171,7 +2251,6 @@ class MoneyTrackerApp {
 
     const yrBaseline = Math.floor(baseline.months / 12);
     const moBaseline = baseline.months % 12;
-    const baselineMonthsLabel = yrBaseline > 0 ? `${yrBaseline} yr${yrBaseline !== 1 ? 's' : ''}, ${moBaseline} mo` : `${moBaseline} mo`;
     const baselinePayoffDate = this.getPayoffDate(baseline.months);
 
     const interestMonth1 = monthlyInterest;
@@ -2249,7 +2328,7 @@ class MoneyTrackerApp {
     this._piManual = false;
     const sel = document.getElementById('simLoanSelect');
     const extraEl = document.getElementById('simExtraPayment');
-    
+
     if (sel && extraEl) {
       const loan = this.state.loans.find(l => l.id === sel.value);
       if (loan && loan.currentPayment) {
@@ -2406,7 +2485,7 @@ class MoneyTrackerApp {
       currentPayment: 0,
       paymentFilter: ''
     };
-    
+
     if (l.term === undefined && l.termYears !== undefined) {
       l.term = l.termYears;
       l.termUnit = 'years';
@@ -2464,7 +2543,7 @@ class MoneyTrackerApp {
               <label class="stat-label">Loan Name</label>
               <input type="text" id="loanName" value="${this.escapeHtml(l.name)}" placeholder="e.g. Mortgage, Car Loan">
             </div>
-            
+
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
               <div>
                 <label class="stat-label">Balance ($)</label>
@@ -2515,7 +2594,7 @@ class MoneyTrackerApp {
                 </span>
               </div>
             </div>
-            
+
             <div style="margin-top:0.25rem;">
               <label class="stat-label">Currently Paying ($)</label>
               <input type="number" step="0.01" id="loanCurrentPayment" value="${currentPayment.toFixed(2)}">
@@ -2556,9 +2635,9 @@ class MoneyTrackerApp {
     const pi = parseFloat(document.getElementById('loanPI').value) || 0;
     const esc = parseFloat(document.getElementById('loanEscrow').value) || 0;
     const currentPmt = parseFloat(document.getElementById('loanCurrentPayment').value) || 0;
-    
+
     const checkedBoxes = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
-    
+
     if (!name || isNaN(rate)) { alert('Please fill in name and rate.'); return; }
     const minPayment = pi + esc;
     this.state.loans.push({
@@ -2588,11 +2667,11 @@ class MoneyTrackerApp {
     l.minPayment = pi + esc;
     l.escrow = esc;
     l.currentPayment = parseFloat(document.getElementById('loanCurrentPayment').value) || 0;
-    
+
     l.paymentFilter = Array.from(document.querySelectorAll('.loan-bill-checkbox:checked')).map(cb => cb.value);
-    
+
     this._piManual = false;
-    this.recalculateLoanBalances(); // Recalculate immediately
+    this.recalculateLoanBalances();
     this.saveState();
     this.closeModal();
     this.renderTabContent('debts');
@@ -2620,17 +2699,16 @@ class MoneyTrackerApp {
         return;
       }
 
-      // Only look at transactions strictly AFTER the Balance As Of date
       const asOf = loan.balanceAsOf || new Date().toISOString().split('T')[0];
       const payments = this.state.transactions.filter(t => {
         if (t.status === 'estimated' || t.amount >= 0 || !t.description) return false;
-        if (t.date <= asOf) return false; // Ignore history!
+        if (t.date <= asOf) return false;
         const desc = t.description.toUpperCase();
         return filters.some(f => desc.includes(f.toUpperCase()));
       });
 
       let bal = parseFloat(loan.initialBalance) || 0;
-      
+
       if (payments.length > 0) {
         payments.sort((a, b) => new Date(a.date) - new Date(b.date));
         const mr = ((parseFloat(loan.rate) || 0) / 100) / 12;
@@ -3397,9 +3475,33 @@ class MoneyTrackerApp {
     document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
   }
 
+  /* Fix #2: rules modal now supports add, edit, and delete properly */
   openRulesModal() {
-    const nicknameRules = this.state.nicknameRules || [];
-    const catOpts = `<option value="">-- Leave Category Unchanged --</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+    const rules = this.state.customRules || [];
+    const editingPattern = this.editingRulePattern;
+    this.editingRulePattern = null; // capture once; form holds state via hidden input
+    const editRule = editingPattern ? rules.find(r => r.searchPattern === editingPattern) : null;
+
+    const catOpts = `<option value="">-- Leave Category Unchanged --</option>` +
+      CATEGORIES.map(c => `<option value="${c}" ${editRule?.category === c ? 'selected' : ''}>${c}</option>`).join('');
+    const matchLabels = { contains: 'Contains', exact: 'Exact', begins: 'Begins With', ends: 'Ends With' };
+    const matchType = editRule?.matchType || 'contains';
+
+    const ruleRow = (r) => `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+        <div style="min-width:0;">
+          <span class="badge badge-posted" style="font-size:0.6rem;">${matchLabels[r.matchType] || 'Contains'}</span>
+          <strong style="font-family:var(--font-mono); font-size:0.8rem;">${this.escapeHtml(r.searchPattern)}</strong>
+          ${r.nickname ? ` → <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span>` : ''}
+          ${r.category ? ` <span class="badge badge-posted" style="margin-left:4px;">${this.escapeHtml(r.category)}</span>` : ''}
+        </div>
+        <div style="display:flex; gap:4px; flex-shrink:0;">
+          <button class="btn btn-sm" data-action="editRule" data-pattern="${this.escapeHtml(r.searchPattern)}" title="Edit rule">✏️</button>
+          <button class="btn btn-sm btn-danger" data-action="deleteRule" data-pattern="${this.escapeHtml(r.searchPattern)}" title="Delete rule">🗑️</button>
+        </div>
+      </div>
+    `;
+
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:700px;">
@@ -3408,30 +3510,31 @@ class MoneyTrackerApp {
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
           <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow); margin-bottom:1.5rem;">
-            <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">+ ADD NEW RULE</div>
+            <div style="font-weight:600; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.75rem;">${editRule ? '✏️ EDIT RULE' : '+ ADD NEW RULE'}</div>
+            <input type="hidden" id="editingRulePattern" value="${this.escapeHtml(editingPattern || '')}">
             <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
-              <div><label class="stat-label">Contains</label><input type="text" id="newRuleSearch"></div>
-              <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname"></div>
-            </div>
-            <div style="display:grid; grid-template-columns:1fr auto; gap:0.5rem; align-items:flex-end;">
-              <div><label class="stat-label">Category (Optional)</label><select id="newRuleCategory">${catOpts}</select></div>
-              <button class="btn btn-primary btn-sm" style="height:35px;" data-action="addNewRule">Add Rule</button>
-            </div>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:1.5rem;">
-            <div>
-              <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">Saved Rules</h3>
+              <div><label class="stat-label">Search Text</label><input type="text" id="newRuleSearch" value="${editRule ? this.escapeHtml(editRule.searchPattern) : ''}"></div>
               <div>
-                ${nicknameRules.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>' :
-                  nicknameRules.map(r => `
-                    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.5rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
-                      <div><span style="color:var(--text-muted); font-size:0.8rem;">Contains:</span>
-                        <strong style="font-family:var(--font-mono);">${this.escapeHtml(r.searchPattern)}</strong> →
-                        <span style="color:var(--accent-primary); font-weight:600;">"${this.escapeHtml(r.nickname)}"</span></div>
-                      <button class="btn btn-sm btn-danger" data-action="deleteNicknameRule" data-pattern="${this.escapeHtml(r.searchPattern)}">🗑️</button>
-                    </div>`).join('')}
+                <label class="stat-label">Match Type</label>
+                <select id="newRuleMatchType">
+                  ${['contains','exact','begins','ends'].map(v =>
+                    `<option value="${v}" ${matchType === v ? 'selected' : ''}>${matchLabels[v]}</option>`
+                  ).join('')}
+                </select>
               </div>
             </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-bottom:0.5rem;">
+              <div><label class="stat-label">Nickname (Optional)</label><input type="text" id="newRuleNickname" value="${editRule ? this.escapeHtml(editRule.nickname || '') : ''}"></div>
+              <div><label class="stat-label">Category (Optional)</label><select id="newRuleCategory">${catOpts}</select></div>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:0.5rem;">
+              ${editRule ? `<button class="btn btn-sm" data-action="cancelRuleEdit">Cancel</button>` : ''}
+              <button class="btn btn-primary btn-sm" data-action="addNewRule">${editRule ? 'Update Rule' : 'Add Rule'}</button>
+            </div>
+          </div>
+          <div>
+            <h3 style="font-size:0.9rem; font-weight:600; color:var(--accent-primary); margin-bottom:0.5rem;">Saved Rules</h3>
+            ${rules.length === 0 ? '<div style="color:var(--text-muted); font-size:0.85rem;">No custom rules yet.</div>' : rules.map(ruleRow).join('')}
           </div>
         </div>
       </div>`);
@@ -3439,35 +3542,82 @@ class MoneyTrackerApp {
 
   addNewRule() {
     const pattern = document.getElementById('newRuleSearch').value.trim();
+    const matchType = document.getElementById('newRuleMatchType')?.value || 'contains';
     const nickname = document.getElementById('newRuleNickname').value.trim();
     const category = document.getElementById('newRuleCategory').value;
+    const editingPattern = document.getElementById('editingRulePattern')?.value || '';
+
     if (!pattern) { alert('Enter a search phrase.'); return; }
     if (!nickname && !category) { alert('Enter a nickname or category.'); return; }
-    if (nickname) {
-      if (!this.state.nicknameRules) this.state.nicknameRules = [];
-      this.state.nicknameRules = this.state.nicknameRules.filter(r => r.searchPattern.toLowerCase() !== pattern.toLowerCase());
-      this.state.nicknameRules.push({ searchPattern: pattern, nickname });
-    }
-    let count = 0;
-    this.state.transactions.forEach(t => {
-      if (t.description && t.description.toLowerCase().includes(pattern.toLowerCase())) {
-        if (nickname) t.nickname = nickname;
-        if (category) { t.category = category; t.locked = true; }
-        count++;
+
+    if (!this.state.customRules) this.state.customRules = [];
+
+    if (editingPattern) {
+      // Update existing rule
+      const r = this.state.customRules.find(x => x.searchPattern === editingPattern);
+      if (r) {
+        r.searchPattern = pattern;
+        r.matchType = matchType;
+        r.nickname = nickname;
+        r.category = category;
       }
-    });
+    } else {
+      // Add new rule (dedupe on pattern+matchType)
+      this.state.customRules = this.state.customRules.filter(
+        r => !(r.searchPattern.toLowerCase() === pattern.toLowerCase() && (r.matchType || 'contains') === matchType)
+      );
+      this.state.customRules.push({ searchPattern: pattern, nickname, category, matchType });
+    }
+
+    this.applyCustomRules();
     this.saveState();
-    this.closeModal();
-    this.showToast(`Applied rule to ${count} transactions`);
+    this.openRulesModal(); // reopen to show updated list
+    this.showToast(editingPattern ? 'Rule updated' : 'Rule saved');
     this.renderTabContent(this.currentTab);
   }
 
-  deleteNicknameRule(btn) {
+  editRule(btn) {
+    this.editingRulePattern = btn.dataset.pattern;
+    this.openRulesModal();
+  }
+
+  cancelRuleEdit() {
+    this.editingRulePattern = null;
+    this.openRulesModal();
+  }
+
+  deleteRule(btn) {
     const pattern = btn.dataset.pattern;
     if (!confirm(`Delete rule for "${pattern}"?`)) return;
-    this.state.nicknameRules = this.state.nicknameRules.filter(r => r.searchPattern !== pattern);
+    this.state.customRules = (this.state.customRules || []).filter(r => r.searchPattern !== pattern);
+    this.applyCustomRules();
     this.saveState();
+    this.editingRulePattern = null;
     this.openRulesModal();
+    this.renderTabContent(this.currentTab);
+  }
+
+  /* Fix #8: normalize dates from various bank formats */
+  normalizeDateToISO(s) {
+    if (!s) return '';
+    let str = String(s).trim().replace(/"/g, '');
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10);
+    // MM/DD/YYYY
+    let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (m) return `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+    // MM/DD/YY
+    m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/);
+    if (m) {
+      const yy = parseInt(m[3]);
+      const year = yy >= 70 ? 1900 + yy : 2000 + yy;
+      return `${year}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}`;
+    }
+    // Fallback to Date parser
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    return str;
   }
 
   openImportWizard(btn) {
@@ -3517,19 +3667,18 @@ class MoneyTrackerApp {
     let count = 0, pending = this.stagedFiles.length;
 
     this.stagedFiles.forEach(file => {
-      // Auto-detect account based on filename
       const fileName = file.name.toLowerCase();
       let target = 'CHECKING';
       if (fileName.includes('saving')) target = 'SAVINGS';
-      
+
       const reader = new FileReader();
       reader.onload = (e) => {
         const lines = e.target.result.split('\n');
-        
+
         lines.forEach((line, idx) => {
-          if (idx === 0 || !line.trim()) return; // Skip header/empty
-          
-          // Regex to split by comma but ignore commas inside quotes
+          if (idx === 0 || !line.trim()) return;
+
+          // Split by comma, respecting quotes
           const parts = [];
           let current = '';
           let inQuotes = false;
@@ -3540,57 +3689,72 @@ class MoneyTrackerApp {
             else current += char;
           }
           parts.push(current);
-          
+
           if (parts.length >= 3) {
-            const date = parts[0].replace(/"/g, '').trim();
+            // Fix #8: normalize date
+            const date = this.normalizeDateToISO(parts[0]);
             let desc = parts[1].replace(/"/g, '').trim();
             let amt = NaN;
             let bal = 0;
-            
-            // Try standard format (Date, Desc, Amount, Balance)
+
             let testAmt = parseFloat(parts[2].replace(/"/g, '').trim());
-            
+
             if (!isNaN(testAmt)) {
               amt = testAmt;
               if (parts.length >= 4) bal = parseFloat(parts[3].replace(/"/g, '').trim()) || 0;
-            } 
-            // Try Sofi/Extended format (Date, Desc, Type, Amount, Balance, Status)
+            }
             else if (parts.length >= 4) {
               amt = parseFloat(parts[3].replace(/"/g, '').trim());
               if (parts.length >= 5) bal = parseFloat(parts[4].replace(/"/g, '').trim()) || 0;
             }
-            
+
             if (!isNaN(amt) && date) {
-              // Deduplication check: skip if same date, amount, and description already exists
-              const exists = this.state.transactions.some(t => 
-                t.account === target && 
-                t.date === date && 
-                Math.abs(t.amount - amt) < 0.01 && 
+              // Dedup (date now normalized)
+              const exists = this.state.transactions.some(t =>
+                t.account === target &&
+                t.date === date &&
+                Math.abs(t.amount - amt) < 0.01 &&
                 t.description === desc
               );
-              
-              if (exists) return; // Skip duplicate
+              if (exists) return;
 
               if (desc.toUpperCase().startsWith('SPOTIFY')) desc = 'Spotify';
-              
-              let cat = 'Miscellaneous', flow = 'Flexible Spending';
-              const rule = CATEGORY_RULES.find(r => desc.toUpperCase().includes(r.contains));
-              if (rule) { cat = rule.category; flow = rule.flow; }
-              
+
+              // Fix #9: single rule lookup (respects matchType for nickname via getMatchingNickname)
+              let cat = 'Miscellaneous', flow = 'Flexible Spending', nick = null;
+              const rule = (this.state.customRules || []).find(r => {
+                const d = desc.toLowerCase();
+                const p = r.searchPattern.toLowerCase();
+                const mt = r.matchType || 'contains';
+                if (mt === 'exact')  return d === p;
+                if (mt === 'begins') return d.startsWith(p);
+                if (mt === 'ends')   return d.endsWith(p);
+                return d.includes(p);
+              });
+              if (rule) {
+                if (rule.nickname) nick = rule.nickname;
+                if (rule.category) cat = rule.category;
+                flow = CATEGORY_FLOW_MAP[cat] || flow;
+              } else {
+                const fallback = CATEGORY_RULES.find(r => desc.toUpperCase().includes(r.contains));
+                if (fallback) { cat = fallback.category; flow = fallback.flow; }
+              }
+
               this.state.transactions.push({
                 id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
                 account: target, date, description: desc,
-                nickname: this.getMatchingNickname(desc),
+                nickname: nick,
                 category: cat, flow, amount: amt, balance: bal, status: 'POSTED'
               });
               count++;
             }
           }
         });
-        
+
         pending--;
         if (pending === 0) {
           this.recalculateBalances();
+          this.applyCustomRules();
           this.saveState();
           this.closeModal();
           this.showToast(`Imported ${count} new transactions`);
@@ -3663,7 +3827,6 @@ class MoneyTrackerApp {
 
   saveVault() {
     const name = document.getElementById('vaultName').value.trim();
-    // Prevent negative starting balances
     const bal = Math.max(0, parseFloat(document.getElementById('vaultInitialBalance').value) || 0);
     if (!name) return;
     this.state.vaults.push({ id: `v_${Date.now()}`, name, balance: bal, startingBalance: bal });
@@ -3743,19 +3906,35 @@ class MoneyTrackerApp {
       </div>`);
   }
 
-   saveEditedVault() {
+  /* Fix #10: warn on rename with existing history */
+  saveEditedVault() {
     const id = document.getElementById('editVaultId').value;
     const name = document.getElementById('editVaultName').value.trim();
-    // Prevent negative manual entry
     const bal = Math.max(0, parseFloat(document.getElementById('editVaultBalance').value) || 0);
     const v = this.state.vaults.find(x => x.id === id);
-    
-    if (v) { 
-      // Calculate the sum of all transactions for this vault
+
+    if (v) {
+      const oldName = v.name;
+      if (name !== oldName) {
+        const oldNorm = (oldName || '').toLowerCase();
+        const hasHistory = this.state.transactions.some(t =>
+          t.status !== 'estimated' &&
+          t.description &&
+          t.description.toLowerCase().includes(oldNorm) &&
+          /vault/i.test(t.description)
+        );
+        if (hasHistory && !confirm(
+          `Rename vault from "${oldName}" to "${name}"?\n\n` +
+          `Historical "Transfer to/from Vault: ${oldName}" transactions will no longer count toward this vault's balance. ` +
+          `The balance you entered above will be preserved as the new baseline.`
+        )) return;
+      }
+
+      // Compute txSum against the NEW name
       let txSum = 0;
       const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
       const vNorm = norm(name);
-      
+
       this.state.transactions.filter(t => t.status !== 'estimated').forEach(t => {
         const desc = t.description || '';
         let matchedName = null;
@@ -3771,15 +3950,14 @@ class MoneyTrackerApp {
           matchedName = desc.replace('Transfer from Vault: ', '').trim();
           amt = -Math.abs(t.amount);
         }
-        
+
         if (matchedName && norm(matchedName) === vNorm) {
           txSum += amt;
         }
       });
-      
-      // Adjust starting balance so the new balance matches exactly what was typed
+
       v.startingBalance = bal - txSum;
-      v.name = name; 
+      v.name = name;
       v.balance = bal;
     }
     this.saveState();
@@ -3797,7 +3975,8 @@ class MoneyTrackerApp {
   }
 
   openMassEditModal() {
-    const catOpts = `<option value="">-- Leave Unchanged --</option>` + CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+    const catOpts = `<option value="">-- Leave Unchanged --</option>` +
+      CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal">
@@ -3806,7 +3985,19 @@ class MoneyTrackerApp {
             <button class="btn btn-sm" data-action="closeModal">Close</button>
           </div>
           <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Description Contains</label><input type="text" id="massSearch"></div>
+            <div><label class="stat-label">Search Text</label><input type="text" id="massSearch" placeholder="e.g. WALMART or WAL-MART"></div>
+            <div>
+              <label class="stat-label">Match Type</label>
+              <select id="massMatchType">
+                <option value="contains">Contains (partial match)</option>
+                <option value="exact">Exact Match (must be identical)</option>
+                <option value="begins">Begins With</option>
+                <option value="ends">Ends With</option>
+              </select>
+            </div>
+            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:-0.25rem; line-height:1.3;">
+              Matches against <strong>both</strong> the raw bank description and the nickname.
+            </div>
             <div><label class="stat-label">Assign Nickname</label><input type="text" id="massNickname"></div>
             <div><label class="stat-label">Set Category</label><select id="massCategory">${catOpts}</select></div>
           </div>
@@ -3820,12 +4011,23 @@ class MoneyTrackerApp {
 
   applyMassEdit() {
     const q = document.getElementById('massSearch').value.trim().toLowerCase();
+    const matchType = document.getElementById('massMatchType').value;
     const nick = document.getElementById('massNickname').value.trim();
     const cat = document.getElementById('massCategory').value;
     if (!q) { alert('Enter search phrase'); return; }
+
+    const matches = (text) => {
+      if (!text) return false;
+      const t = text.toLowerCase();
+      if (matchType === 'exact')  return t === q;
+      if (matchType === 'begins') return t.startsWith(q);
+      if (matchType === 'ends')   return t.endsWith(q);
+      return t.includes(q);
+    };
+
     let count = 0;
     this.state.transactions.forEach(t => {
-      if (t.description && t.description.toLowerCase().includes(q)) {
+      if (matches(t.description) || matches(t.nickname)) {
         if (nick) t.nickname = nick;
         if (cat) { t.category = cat; t.locked = true; }
         count++;
@@ -3991,7 +4193,7 @@ class MoneyTrackerApp {
     const rateEl = document.getElementById('scenarioLoanRate');
     const termEl = document.getElementById('scenarioLoanTerm');
     const termUnitEl = document.getElementById('scenarioLoanTermUnit');
-    
+
     if (balEl) balEl.value = (parseFloat(l.balance) || 0).toFixed(2);
     if (rateEl) rateEl.value = l.rate;
     if (termEl) termEl.value = l.term || l.termYears || 30;
@@ -4230,17 +4432,19 @@ class MoneyTrackerApp {
     const interval = parseInt(document.getElementById('recInterval').value) || 1;
     const freq = document.getElementById('recFreq').value;
     const rawCount = parseInt(document.getElementById('recCount').value) || 12;
-    const count = Math.min(rawCount, 24); 
+    const count = Math.min(rawCount, 24);
 
     if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
     const groupId = `rec_${Date.now()}`;
     let curDate = new Date(start + 'T00:00:00');
     for (let i = 0; i < count; i++) {
       const dateStr = `${curDate.getFullYear()}-${String(curDate.getMonth() + 1).padStart(2, '0')}-${String(curDate.getDate()).padStart(2, '0')}`;
+      // Fix #4: store count explicitly as endType='count'
       this.state.transactions.push({
         id: `est_${Date.now()}_${i}`, groupId, account: acc, date: dateStr,
         description: desc, category: cat, flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
-        amount: amt, status: 'estimated', ruleConfig: { interval, freq, count }
+        amount: amt, status: 'estimated',
+        ruleConfig: { interval, freq, endType: 'count', endVal: count, count }
       });
       if (freq === 'days') curDate.setDate(curDate.getDate() + interval);
       else if (freq === 'weeks') curDate.setDate(curDate.getDate() + (7 * interval));
@@ -4261,7 +4465,7 @@ class MoneyTrackerApp {
   }
 
   escapeHtml(str) {
-    if (!str) return '';
+    if (str === null || str === undefined) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 

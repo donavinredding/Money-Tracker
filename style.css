@@ -257,3 +257,24 @@ input[type="color"]::-moz-color-swatch {
   border: none;
   border-radius: 5px;
 }
+
+/* Fix for native dropdown menus (options) in dark mode */
+select option {
+  background-color: var(--bg-elevated);
+  color: var(--text-main);
+  padding: 8px; 
+}
+
+/* Specifically ensure the category pills have a dark dropdown */
+.cat-select option {
+  background-color: var(--bg-base);
+  color: var(--text-main);
+}
+
+/* Fix for Firefox specifically to ensure the text doesn't disappear */
+@-moz-document url-prefix() {
+  select option {
+    background-color: var(--bg-elevated) !important;
+    color: var(--text-main) !important;
+  }
+}
