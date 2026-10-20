@@ -130,6 +130,8 @@ class MoneyTrackerApp {
     this.editingRuleIndex = null;
     this._eventsBound = false;
     this.showLockedOnly = false;
+    this.spendingRange = 'last_month';
+    this.spendingCustom = 30;
   }
 
   /* ============ STORAGE HEALTH / TRIM ============ */
@@ -1097,35 +1099,51 @@ class MoneyTrackerApp {
   }
 
   tplNetworth() {
-    return `
-      <section class="view-container active">
-        <div class="stat-header" id="networthStats"></div>
-        <div class="card" style="margin-bottom:1.5rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h3 style="font-size:1rem; font-weight:600;">Total Household Position Trend</h3>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-sm chart-mode-btn active-mode" data-networth-range="week">week</button>
-                <button class="btn btn-sm chart-mode-btn" data-networth-range="month">month</button>
-                <button class="btn btn-sm chart-mode-btn" data-networth-range="year">year</button>
-              </div>
+  return `
+    <section class="view-container active">
+      <div class="stat-header" id="networthStats"></div>
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Total Household Position Trend</h3>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-sm chart-mode-btn active-mode" data-networth-range="week">week</button>
+              <button class="btn btn-sm chart-mode-btn" data-networth-range="month">month</button>
+              <button class="btn btn-sm chart-mode-btn" data-networth-range="year">year</button>
             </div>
           </div>
-          <canvas id="networthChart" height="260" style="width:100%; display:block;"></canvas>
         </div>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Spending by Category</h3>
-            <canvas id="categoryDonut" height="240" style="width:100%; display:block;"></canvas>
-            <div id="categoryLegend" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:0.5rem; margin-top:1rem;"></div>
+        <canvas id="networthChart" height="260" style="width:100%; display:block;"></canvas>
+      </div>
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+            <h3 style="font-size:1rem; font-weight:600;">Spending by Category</h3>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <select id="spendingRangeSelect" onchange="app.onSpendingRangeChange(this.value)" style="width:auto; min-width:150px;">
+                <option value="week_avg" ${this.spendingRange === 'week_avg' ? 'selected' : ''}>Weekly Average</option>
+                <option value="month_avg" ${this.spendingRange === 'month_avg' ? 'selected' : ''}>Monthly Average</option>
+                <option value="last_week" ${this.spendingRange === 'last_week' ? 'selected' : ''}>Last Week</option>
+                <option value="last_month" ${this.spendingRange === 'last_month' ? 'selected' : ''}>Last Month</option>
+                <option value="last_custom_days" ${this.spendingRange === 'last_custom_days' ? 'selected' : ''}>Last # Days</option>
+                <option value="last_custom_weeks" ${this.spendingRange === 'last_custom_weeks' ? 'selected' : ''}>Last # Weeks</option>
+                <option value="last_custom_months" ${this.spendingRange === 'last_custom_months' ? 'selected' : ''}>Last # Months</option>
+              </select>
+              <input type="number" id="spendingCustomVal" min="1" max="365" value="${this.spendingCustom}" 
+                     oninput="app.onSpendingCustomInput(this.value)" 
+                     style="width:70px; display:${this.spendingRange.startsWith('last_custom') ? 'block' : 'none'};">
+            </div>
           </div>
-          <div class="card">
-            <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Roundup Sweeps Summary</h3>
-            <div id="roundupsSummary"></div>
-          </div>
+          <canvas id="categoryDonut" height="240" style="width:100%; display:block;"></canvas>
+          <div id="categoryLegend" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:0.5rem; margin-top:1rem;"></div>
         </div>
-      </section>`;
+        <div class="card">
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Roundup Sweeps Summary</h3>
+          <div id="roundupsSummary"></div>
+        </div>
+      </div>
+    </section>`;
   }
 
   tplDebts() {
@@ -3460,64 +3478,118 @@ class MoneyTrackerApp {
     }
   }
 
+  onSpendingRangeChange(val) {
+  this.spendingRange = val;
+  const input = document.getElementById('spendingCustomVal');
+  if (input) input.style.display = val.startsWith('last_custom') ? 'block' : 'none';
+  this.renderDonutChart();
+}
+
+onSpendingCustomInput(val) {
+  this.spendingCustom = parseInt(val) || 1;
+  this.renderDonutChart();
+}
+
   renderDonutChart() {
-    const canvas = document.getElementById('categoryDonut');
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = 240 * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    ctx.clearRect(0, 0, rect.width, 240);
+  const canvas = document.getElementById('categoryDonut');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = 240 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0, 0, rect.width, 240);
 
-    const txs = this.state.transactions.filter(t => t.status !== 'estimated' && parseFloat(t.amount) < 0);
-    const totals = {};
-    let grand = 0;
-    txs.forEach(t => {
-      const c = t.category || 'Miscellaneous';
-      totals[c] = (totals[c] || 0) + Math.abs(parseFloat(t.amount) || 0);
-      grand += Math.abs(parseFloat(t.amount) || 0);
-    });
-    const legend = document.getElementById('categoryLegend');
-    if (grand === 0) {
-      ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
-      ctx.fillText('No spending data', rect.width / 2, 120);
-      if (legend) legend.innerHTML = '';
-      return;
-    }
-    const cx = rect.width / 2, cy = 120, radius = 85;
-    const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-    const threshold = grand * 0.03;
-    let otherVal = 0;
-    const display = [];
-    entries.forEach(([cat, val]) => {
-      if (val < threshold) otherVal += val;
-      else display.push([cat, val]);
-    });
-    if (otherVal > 0) display.push(["Other", otherVal]);
+  // --- NEW DATE FILTERING LOGIC ---
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  let start = new Date(now);
+  let divisor = 1; // Used for averaging
 
-    let startA = -Math.PI / 2;
-    display.forEach(([cat, val]) => {
-      const sliceA = (val / grand) * Math.PI * 2;
-      const endA = startA + sliceA;
-      const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-      ctx.beginPath();
-      ctx.arc(cx, cy, radius, startA, endA);
-      ctx.arc(cx, cy, radius - 30, endA, startA, true);
-      ctx.closePath();
-      ctx.fillStyle = cfg.color; ctx.fill();
-      ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 2; ctx.stroke();
-      startA = endA;
-    });
-    if (legend) legend.innerHTML = display.map(([cat, val]) => {
-      const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-      return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
-        <span style="width:8px; height:8px; border-radius:50%; background:${cfg.color};"></span>
-        <span style="font-weight:500;">${cat}</span>
-        <span style="color:var(--text-muted); margin-left:auto;">$${val.toFixed(0)}</span>
-      </div>`;
-    }).join('');
+  const range = this.spendingRange;
+  if (range === 'week_avg') {
+    start.setDate(now.getDate() - 90);
+    divisor = 90 / 7; // ~12.85 weeks in 90 days
+  } else if (range === 'month_avg') {
+    start.setFullYear(now.getFullYear() - 1);
+    divisor = 12;
+  } else if (range === 'last_week') {
+    start.setDate(now.getDate() - 7);
+  } else if (range === 'last_month') {
+    start.setDate(now.getDate() - 30);
+  } else if (range === 'last_custom_days') {
+    start.setDate(now.getDate() - (this.spendingCustom || 30));
+  } else if (range === 'last_custom_weeks') {
+    start.setDate(now.getDate() - ((this.spendingCustom || 4) * 7));
+  } else if (range === 'last_custom_months') {
+    start.setMonth(now.getMonth() - (this.spendingCustom || 3));
+  }
+
+  // Filter only posted, negative (spending) transactions in date range
+  const txs = this.state.transactions.filter(t => {
+    if (t.status === 'estimated' || parseFloat(t.amount) >= 0) return false;
+    const txDate = new Date(t.date + 'T00:00:00');
+    return txDate >= start && txDate <= now;
+  });
+
+  const totals = {};
+  let grand = 0;
+  
+  txs.forEach(t => {
+    const c = t.category || 'Miscellaneous';
+    // Apply divisor here to get average per week/month
+    const amt = Math.abs(parseFloat(t.amount) || 0) / divisor;
+    totals[c] = (totals[c] || 0) + amt;
+    grand += amt;
+  });
+
+  const legend = document.getElementById('categoryLegend');
+  if (grand === 0) {
+    ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
+    ctx.fillText('No spending data for this period', rect.width / 2, 120);
+    if (legend) legend.innerHTML = '';
+    return;
+  }
+
+  const cx = rect.width / 2, cy = 120, radius = 85;
+  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const threshold = grand * 0.03;
+  let otherVal = 0;
+  const display = [];
+  
+  entries.forEach(([cat, val]) => {
+    if (val < threshold) otherVal += val;
+    else display.push([cat, val]);
+  });
+  if (otherVal > 0) display.push(["Other", otherVal]);
+
+  let startA = -Math.PI / 2;
+  display.forEach(([cat, val]) => {
+    const sliceA = (val / grand) * Math.PI * 2;
+    const endA = startA + sliceA;
+    const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius, startA, endA);
+    ctx.arc(cx, cy, radius - 30, endA, startA, true);
+    ctx.closePath();
+    ctx.fillStyle = cfg.color; ctx.fill();
+    ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 2; ctx.stroke();
+    startA = endA;
+  });
+
+  // --- NEW LEGEND RENDER WITH % ---
+  if (legend) legend.innerHTML = display.map(([cat, val]) => {
+    const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
+    const pct = grand > 0 ? ((val / grand) * 100).toFixed(1) : '0.0';
+    return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
+      <span style="width:8px; height:8px; border-radius:50%; background:${cfg.color}; flex-shrink:0;"></span>
+      <span style="font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${cat}</span>
+      <span style="color:var(--text-muted); margin-left:auto; white-space:nowrap;">
+        $${val.toFixed(0)} <span style="font-size:0.65rem; color:var(--text-dim);">(${pct}%)</span>
+      </span>
+    </div>`;
+  }).join('');
   }
 
   renderForecasterChart() {
