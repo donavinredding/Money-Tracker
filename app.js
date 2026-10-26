@@ -1012,63 +1012,66 @@ class MoneyTrackerApp {
   }
 
   tplChecking() {
-    const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
+  const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
+  const trashCount = (this.state.transactions || []).filter(t => t.deletedAt).length;
 
-    return `
-    <section class="view-container active">
-      <div class="stat-header" id="checkingStats"></div>
-      <div class="card" style="margin-bottom:1.5rem;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-          <h3 style="font-size:1rem; font-weight:600;">Checking Balance History</h3>
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
-            <div style="display:flex; gap:0.5rem;">
-              <button class="btn btn-sm chart-mode-btn active-mode" data-chart-range="week">week</button>
-              <button class="btn btn-sm chart-mode-btn" data-chart-range="month">month</button>
-              <button class="btn btn-sm chart-mode-btn" data-chart-range="year">year</button>
-            </div>
+  return `
+  <section class="view-container active">
+    <div class="stat-header" id="checkingStats"></div>
+    <div class="card" style="margin-bottom:1.5rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+        <h3 style="font-size:1rem; font-weight:600;">Checking Balance History</h3>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn btn-sm chart-mode-btn active-mode" data-chart-range="week">week</button>
+            <button class="btn btn-sm chart-mode-btn" data-chart-range="month">month</button>
+            <button class="btn btn-sm chart-mode-btn" data-chart-range="year">year</button>
           </div>
         </div>
-        <canvas id="checkingChart" height="260" style="width:100%; display:block;"></canvas>
       </div>
-      <div class="table-toolbar">
-        <div class="search-box">
-          <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}" title="Search by description, nickname, or category">
-        </div>
-        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
-          <button class="btn btn-sm ${this.showLockedOnly ? 'btn-primary' : ''}" data-action="toggleLockedFilter" title="${this.showLockedOnly ? 'Show all transactions' : 'Show only locked transactions'}">🔒 Locked${lockedCount ? ` (${lockedCount})` : ''}</button>
-          <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
-          <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
-          <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
-          <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
-          <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
-        </div>
+      <canvas id="checkingChart" height="260" style="width:100%; display:block;"></canvas>
+    </div>
+    <div class="table-toolbar">
+      <div class="search-box">
+        <input type="text" id="checkingSearch" placeholder="Search transactions..." value="${this.escapeHtml(this.searchQuery)}" title="Search by description, nickname, or category">
       </div>
-      <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
-        <table id="checkingTable">
-          <thead><tr>
-            <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
-            <th data-sort="date">Date ${this.sortArrow('date')}</th>
-            <th data-sort="description">Description ${this.sortArrow('description')}</th>
-            <th data-sort="category">Category ${this.sortArrow('category')}</th>
-            <th>Flow</th>
-            <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
-            <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
-            <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
-          </tr></thead>
-          <tbody id="checkingTableBody"></tbody>
-        </table>
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button class="btn btn-sm ${this.showLockedOnly ? 'btn-primary' : ''}" data-action="toggleLockedFilter" title="${this.showLockedOnly ? 'Show all transactions' : 'Show only locked transactions'}">🔒 Locked${lockedCount ? ` (${lockedCount})` : ''}</button>
+        <button class="btn btn-sm" data-action="openTrashModal" title="View deleted transactions">🗑 Trash${trashCount ? ` (${trashCount})` : ''}</button>
+        <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
+        <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
+        <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
+        <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
+        <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
       </div>
+    </div>
+    <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
+      <table id="checkingTable">
+        <thead><tr>
+          <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
+          <th data-sort="date">Date ${this.sortArrow('date')}</th>
+          <th data-sort="description">Description ${this.sortArrow('description')}</th>
+          <th data-sort="category">Category ${this.sortArrow('category')}</th>
+          <th>Flow</th>
+          <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
+          <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
+          <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
+          <th style="width:36px;" title="Delete">Del</th>
+        </tr></thead>
+        <tbody id="checkingTableBody"></tbody>
+      </table>
+    </div>
 
-      <!-- Bulk action bar (slides up when rows are selected) -->
-      <div class="bulk-bar" id="bulkBar">
-        <span id="bulkBarCount" style="font-weight:700; font-size:0.8rem; color:var(--accent-primary); margin-right:0.5rem;">0 selected</span>
-        <button class="btn btn-sm" data-action="bulkLockSelected" title="Lock all selected transactions">🔒 Lock</button>
-        <button class="btn btn-sm" data-action="bulkUnlockSelected" title="Unlock all selected transactions">🔓 Unlock</button>
-        <button class="btn btn-sm" data-action="bulkToggleLockSelected" title="Toggle lock state for each selected transaction">↻ Toggle</button>
-        <button class="btn btn-sm" data-action="clearSelection" title="Deselect all">✕ Clear</button>
-      </div>
-    </section>`;
+    <div class="bulk-bar" id="bulkBar">
+      <span id="bulkBarCount" style="font-weight:700; font-size:0.8rem; color:var(--accent-primary); margin-right:0.5rem;">0 selected</span>
+      <button class="btn btn-sm" data-action="bulkLockSelected" title="Lock all selected transactions">🔒 Lock</button>
+      <button class="btn btn-sm" data-action="bulkUnlockSelected" title="Unlock all selected transactions">🔓 Unlock</button>
+      <button class="btn btn-sm" data-action="bulkToggleLockSelected" title="Toggle lock state for each selected transaction">↻ Toggle</button>
+      <button class="btn btn-sm btn-danger" data-action="bulkSoftDeleteSelected" title="Soft-delete selected (recoverable from Trash)">🗑 Delete</button>
+      <button class="btn btn-sm" data-action="clearSelection" title="Deselect all">✕ Clear</button>
+    </div>
+  </section>`;
   }
 
   tplSavings() {
@@ -1221,71 +1224,84 @@ class MoneyTrackerApp {
   }
 
   tplCalendar() {
-    return `
-      <section class="view-container active">
-        <div id="calendarMonthSummary" style="margin-bottom:1rem;"></div>
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-          <div style="display:flex; gap:0.5rem; align-items:center;">
-            <button class="btn btn-sm" data-action="changeMonth" data-offset="-1">← Prev</button>
-            <h2 id="calendarMonthTitle" style="font-size:1.2rem; font-weight:700;"></h2>
-            <button class="btn btn-sm" data-action="changeMonth" data-offset="1">Next →</button>
-          </div>
+  return `
+    <section class="view-container active">
+      <div id="calendarMonthSummary" style="margin-bottom:1rem;"></div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+          <button class="btn btn-sm" data-action="changeMonth" data-offset="-1">← Prev</button>
+          <h2 id="calendarMonthTitle" style="font-size:1.2rem; font-weight:700;"></h2>
+          <button class="btn btn-sm" data-action="changeMonth" data-offset="1">Next →</button>
+        </div>
+        <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+          <button class="btn btn-sm" data-action="openManageRecurringModal">🔄 Manage Recurring</button>
           <button class="btn btn-sm btn-primary" data-action="openRecurringModal">+ Add Recurring</button>
         </div>
-        <div class="calendar-desktop-view">
-          <div class="calendar-grid">
-            <div class="calendar-day-header">Sun</div><div class="calendar-day-header">Mon</div>
-            <div class="calendar-day-header">Tue</div><div class="calendar-day-header">Wed</div>
-            <div class="calendar-day-header">Thu</div><div class="calendar-day-header">Fri</div>
-            <div class="calendar-day-header">Sat</div>
-          </div>
-          <div class="calendar-grid" id="calendarGrid" style="margin-top:6px;"></div>
+      </div>
+      <div class="calendar-desktop-view">
+        <div class="calendar-grid">
+          <div class="calendar-day-header">Sun</div><div class="calendar-day-header">Mon</div>
+          <div class="calendar-day-header">Tue</div><div class="calendar-day-header">Wed</div>
+          <div class="calendar-day-header">Thu</div><div class="calendar-day-header">Fri</div>
+          <div class="calendar-day-header">Sat</div>
         </div>
-        <div class="calendar-mobile-view" id="calendarMobileList"></div>
-      </section>`;
+        <div class="calendar-grid" id="calendarGrid" style="margin-top:6px;"></div>
+      </div>
+      <div class="calendar-mobile-view" id="calendarMobileList"></div>
+      <div class="card" style="margin-top:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Cumulative Net Cash Flow</h3>
+          <button class="btn btn-sm" data-action="renderCalendarChart" title="Refresh chart">🔄</button>
+        </div>
+        <canvas id="calendarChart" height="260" style="width:100%; display:block;"></canvas>
+        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem; text-align:center;">
+          Running income minus expenses · Transfers excluded
+        </div>
+      </div>
+    </section>`;
   }
 
   tplForecaster() {
-    return `
-      <section class="view-container active">
-        <div class="card" style="margin-bottom:1.25rem;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size:1rem; font-weight:600;">Monthly Baseline</h3>
-            <button class="btn btn-sm" data-action="syncForecaster">🔄 Auto-Sync</button>
+  return `
+    <section class="view-container active">
+      <div class="card" style="margin-bottom:1.25rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+          <h3 style="font-size:1rem; font-weight:600;">Monthly Baseline</h3>
+          <button class="btn btn-sm" data-action="syncForecaster">🔄 Auto-Sync</button>
+        </div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:0.75rem;">
+          <div><label class="stat-label">AVG INCOME</label>
+            <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgIncome" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
           </div>
-          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:0.75rem;">
-            <div><label class="stat-label">AVG INCOME</label>
-              <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgIncome" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
-            </div>
-            <div><label class="stat-label">FIXED EXPENSES</label>
-              <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgFixed" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
-            </div>
-            <div><label class="stat-label">FLEXIBLE SPENDING</label>
-              <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgVariable" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
+          <div><label class="stat-label">FIXED EXPENSES</label>
+            <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgFixed" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
+          </div>
+          <div><label class="stat-label">FLEXIBLE SPENDING</label>
+            <div class="input-currency-wrapper"><span>$</span><input type="number" id="fcAvgVariable" value="0.00" step="0.01" oninput="app.debouncedForecaster()"></div>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="forecast-split-grid" id="forecastOutputCards"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+          <h3 style="font-size:0.95rem; font-weight:600;">What-If Scenarios</h3>
+          <button class="btn btn-sm btn-primary" data-action="openAddScenarioModal">+ Add Scenario</button>
+        </div>
+        <div id="scenarioList" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;"></div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; flex-wrap:wrap; gap:0.5rem;">
+          <h4 style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">PROJECTION</h4>
+          <div style="display:flex; gap:0.5rem; align-items:center;">
+            <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
+            <div style="display:flex; gap:0.5rem;">
+              <button class="btn btn-sm chart-mode-btn" data-forecaster-range="week">7 days</button>
+              <button class="btn btn-sm chart-mode-btn" data-forecaster-range="month">30 days</button>
+              <button class="btn btn-sm chart-mode-btn active-mode" data-forecaster-range="year">12 months</button>
             </div>
           </div>
         </div>
-        <div class="card">
-          <div class="forecast-split-grid" id="forecastOutputCards"></div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size:0.95rem; font-weight:600;">What-If Scenarios</h3>
-            <button class="btn btn-sm btn-primary" data-action="openAddScenarioModal">+ Add Scenario</button>
-          </div>
-          <div id="scenarioList" style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;"></div>
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h4 style="font-size:0.85rem; font-weight:600; color:var(--text-muted);">PROJECTION</h4>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <button class="btn btn-sm" data-action="renderCharts" title="Refresh charts">🔄</button>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-sm chart-mode-btn active-mode" data-forecaster-range="week">week</button>
-                <button class="btn btn-sm chart-mode-btn" data-forecaster-range="month">month</button>
-                <button class="btn btn-sm chart-mode-btn" data-forecaster-range="year">year</button>
-              </div>
-            </div>
-          </div>
-          <canvas id="forecasterChart" height="220" style="width:100%; display:block; margin-top:0.5rem;"></canvas>
-        </div>
-      </section>`;
+        <canvas id="forecasterChart" height="220" style="width:100%; display:block; margin-top:0.5rem;"></canvas>
+      </div>
+    </section>`;
   }
 
   tplApy() {
@@ -1458,9 +1474,9 @@ class MoneyTrackerApp {
     const display = items.slice(0, limit);
     let html = display.map(t => this.buildCheckingRow(t)).join('');
     if (items.length === 0 && this.showLockedOnly) {
-      html = `<tr><td colspan="9" style="text-align:center; padding:2rem; color:var(--text-muted); font-size:0.85rem;">🔒 No locked transactions yet.<br><span style="font-size:0.75rem;">Click the 🔓 icon on any row to lock it, then use the 🔒 Locked filter to view them here.</span></td></tr>`;
+      html = `<tr><td colspan="10" style="text-align:center; padding:2rem; color:var(--text-muted); font-size:0.85rem;">🔒 No locked transactions yet.<br><span style="font-size:0.75rem;">Click the 🔓 icon on any row to lock it, then use the 🔒 Locked filter to view them here.</span></td></tr>`;
     } else if (items.length > limit) {
-      html += `<tr><td colspan="9" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">Showing first ${limit} of ${items.length}. Use search to narrow.</td></tr>`;
+      html += `<tr><td colspan="10" style="text-align:center; padding:1rem; color:var(--text-muted); font-size:0.8rem;">Showing first ${limit} of ${items.length}. Use search to narrow.</td></tr>`;
     }
     tbody.innerHTML = html;
 
@@ -1469,41 +1485,43 @@ class MoneyTrackerApp {
   }
 
   buildCheckingRow(t) {
-    const isPending = t.status === 'pending';
-    const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
-    const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
-    const dn = t.nickname
-      ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
-      : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
+  const isPending = t.status === 'pending';
+  const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
+  const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
+  const dn = t.nickname
+    ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
+    : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
 
-    if (isPending) {
-      return `<tr data-tx-row="${t.id}">
-        <td></td>
-        <td class="mono">${t.date}</td>
-        <td>${dn}</td>
-        <td><span style="font-size:0.75rem; color:var(--text-muted)">${this.escapeHtml(t.category || '—')}</span></td>
-        <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
-        <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
-        <td class="mono" style="color:var(--text-muted)" title="Pending items don't have a posted balance">—</td>
-        <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
-        <td></td>
-      </tr>`;
-    }
-
-    const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  if (isPending) {
     return `<tr data-tx-row="${t.id}">
-      <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
+      <td></td>
       <td class="mono">${t.date}</td>
       <td>${dn}</td>
-      <td title="Manually changing this will lock the row from auto-rules."><div class="cat-select-wrapper" style="--cat-bg:${colors.bg}; --cat-color:${colors.color}; --cat-border:${colors.border}; --cat-glow:${colors.glow};">
-        <select class="cat-select" data-tx-id="${t.id}">${catOpts}</select>
-      </div></td>
+      <td><span style="font-size:0.75rem; color:var(--text-muted)">${this.escapeHtml(t.category || '—')}</span></td>
       <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
       <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
-      <td class="mono">$${(parseFloat(t.balance) || 0).toFixed(2)}</td>
-      <td><span class="badge badge-posted" title="Transaction has cleared.">${t.status || 'POSTED'}</span></td>
-      <td style="cursor:pointer;" data-toggle-lock="${t.id}" title="${t.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes'}">${t.locked ? '🔒' : '🔓'}</td>
+      <td class="mono" style="color:var(--text-muted)" title="Pending items don't have a posted balance">—</td>
+      <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
+      <td></td>
+      <td style="cursor:pointer; text-align:center; color:var(--text-muted);" data-action="hardDeletePending" data-tx-id="${t.id}" title="Remove this pending item">✕</td>
     </tr>`;
+  }
+
+  const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
+  return `<tr data-tx-row="${t.id}">
+    <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
+    <td class="mono">${t.date}</td>
+    <td>${dn}</td>
+    <td title="Manually changing this will lock the row from auto-rules."><div class="cat-select-wrapper" style="--cat-bg:${colors.bg}; --cat-color:${colors.color}; --cat-border:${colors.border}; --cat-glow:${colors.glow};">
+      <select class="cat-select" data-tx-id="${t.id}">${catOpts}</select>
+    </div></td>
+    <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
+    <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
+    <td class="mono">$${(parseFloat(t.balance) || 0).toFixed(2)}</td>
+    <td><span class="badge badge-posted" title="Transaction has cleared.">${t.status || 'POSTED'}</span></td>
+    <td style="cursor:pointer; text-align:center;" data-toggle-lock="${t.id}" title="${t.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes'}">${t.locked ? '🔒' : '🔓'}</td>
+    <td style="cursor:pointer; text-align:center; color:var(--text-muted);" data-action="softDeleteTransaction" data-tx-id="${t.id}" title="Move to Trash">🗑</td>
+  </tr>`;
   }
 
   renderSavingsView() {
@@ -1561,7 +1579,7 @@ class MoneyTrackerApp {
         <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
         <div class="stat-subtext">Checking + Savings + Vaults</div></div>`;
 
-    const roundups = this.state.transactions.filter(t => t.status !== 'estimated' && t.description && t.description.toLowerCase().includes('roundup'));
+    const roundups = this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt && t.description && t.description.toLowerCase().includes('roundup'));
     const rt = roundups.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
     const rs = document.getElementById('roundupsSummary');
     if (rs) rs.innerHTML = `
@@ -1572,7 +1590,7 @@ class MoneyTrackerApp {
   }
 
   getBalances(accountKey) {
-    const posted = this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated');
+    const posted = this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated' && !t.deletedAt);
     let ending = 0;
     if (posted.length > 0) {
       const sorted = [...posted].sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -1588,7 +1606,7 @@ class MoneyTrackerApp {
   }
 
   getFilteredTransactions(accountKey) {
-    return this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated');
+    return this.state.transactions.filter(t => t.account === accountKey && t.status !== 'estimated' && !t.deletedAt);
   }
 
   getRecurringGroups(categoryFilter) {
@@ -1626,42 +1644,57 @@ class MoneyTrackerApp {
   }
 
   computeScenarioImpact(scenario) {
-    if (!scenario || !scenario.active) return 0;
-    const type = scenario.type || 'custom';
+  if (!scenario || !scenario.active) return 0;
+  const type = scenario.type || 'custom';
 
-    if (type === 'custom' || type === 'recurring') {
-      return parseFloat(scenario.amount) || 0;
-    }
+  if (type === 'custom' || type === 'recurring') {
+    const raw = parseFloat(scenario.amount) || 0;
+    const abs = Math.abs(raw);
+    const sign = raw >= 0 ? 1 : -1;
+    const f = scenario.frequency;
 
-    if (type === 'paycheck' || type === 'bill') {
-      const info = this.getRecurringGroupInfo(scenario.groupId);
-      if (!info) return 0;
-      const cfg = info.ruleConfig || { interval: 1, freq: 'weeks' };
-      const int = Math.max(1, cfg.interval || 1);
-      const absNew = Math.abs(parseFloat(scenario.amount) || 0);
-      let monthlyNew = 0;
-      if (cfg.freq === 'days') monthlyNew = (absNew / int) * (365 / 12);
-      else if (cfg.freq === 'weeks') monthlyNew = (absNew / int) * (52 / 12);
-      else if (cfg.freq === 'months') monthlyNew = absNew / int;
-      else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
-      const monthlyOld = Math.abs(info.monthly);
-      const delta = monthlyNew - monthlyOld;
-      return type === 'paycheck' ? delta : -delta;
-    }
+    if (!f) return raw; // Legacy scenario — already stored as monthly
 
-    if (type === 'loan') {
-      const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
-      if (!loan) return 0;
-      const ov = scenario.loanOverrides || {};
-      const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
-      const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
-      const t = parseFloat(ov.term != null ? ov.term : (loan.term || loan.termYears)) || 30;
-      const u = ov.termUnit != null ? ov.termUnit : (loan.termUnit || 'years');
-      const totalMonths = u === 'years' ? t * 12 : t;
-      return -this.calculatePI(bal, rate, totalMonths);
-    }
+    const int = Math.max(1, f.interval || 1);
+    let monthly = 0;
+    if (f.freq === 'days') monthly = (abs / int) * (365 / 12);
+    else if (f.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+    else if (f.freq === 'months') monthly = abs / int;
+    else if (f.freq === 'years') monthly = abs / (12 * int);
+    else monthly = abs;
 
-    return 0;
+    return sign * monthly;
+  }
+
+  if (type === 'paycheck' || type === 'bill') {
+    const info = this.getRecurringGroupInfo(scenario.groupId);
+    if (!info) return 0;
+    const cfg = info.ruleConfig || { interval: 1, freq: 'weeks' };
+    const int = Math.max(1, cfg.interval || 1);
+    const absNew = Math.abs(parseFloat(scenario.amount) || 0);
+    let monthlyNew = 0;
+    if (cfg.freq === 'days') monthlyNew = (absNew / int) * (365 / 12);
+    else if (cfg.freq === 'weeks') monthlyNew = (absNew / int) * (52 / 12);
+    else if (cfg.freq === 'months') monthlyNew = absNew / int;
+    else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
+    const monthlyOld = Math.abs(info.monthly);
+    const delta = monthlyNew - monthlyOld;
+    return type === 'paycheck' ? delta : -delta;
+  }
+
+  if (type === 'loan') {
+    const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
+    if (!loan) return 0;
+    const ov = scenario.loanOverrides || {};
+    const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
+    const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
+    const t = parseFloat(ov.term != null ? ov.term : (loan.term || loan.termYears)) || 30;
+    const u = ov.termUnit != null ? ov.termUnit : (loan.termUnit || 'years');
+    const totalMonths = u === 'years' ? t * 12 : t;
+    return -this.calculatePI(bal, rate, totalMonths);
+  }
+
+  return 0;
   }
 
   updateRowCategory(id, newCat) {
@@ -1826,7 +1859,7 @@ class MoneyTrackerApp {
 
     const norm = (s) => (s || '').replace(/[^a-z0-9]/gi, '').toLowerCase();
 
-    this.state.transactions.filter(t => t.status !== 'estimated').forEach(t => {
+    this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt).forEach(t => {
       const desc = t.description || '';
       let vaultName = null;
       let amt = 0;
@@ -1869,7 +1902,7 @@ class MoneyTrackerApp {
     this.recalculateVaultBalances();
     ['CHECKING', 'SAVINGS'].forEach(acc => {
       let running = 0;
-      const txs = this.state.transactions.filter(t => t.account === acc && t.status !== 'estimated')
+      const txs = this.state.transactions.filter(t => t.account === acc && t.status !== 'estimated' && !t.deletedAt)
         .sort((a, b) => { const dA = new Date(a.date).getTime(), dB = new Date(b.date).getTime(); return dA !== dB ? dA - dB : (a.id || '').localeCompare(b.id || ''); });
       txs.forEach(tx => {
         running += (parseFloat(tx.amount) || 0);
@@ -1921,6 +1954,7 @@ class MoneyTrackerApp {
     if (!(this.state.customRules || []).length) return;
     this.state.transactions.forEach(t => {
       if (t.locked) return;
+      if (t.deletedAt) return;
       if (!t.description) return;
       const rule = this._findMatchingRule(t.description, t.nickname);
       if (rule) {
@@ -1960,6 +1994,7 @@ class MoneyTrackerApp {
 
       const dayMap = new Map();
       this.state.transactions.forEach(t => {
+        if (t.deletedAt) return;
         if (t.date && t.date.startsWith(monthPrefix)) {
           if (!dayMap.has(t.date)) dayMap.set(t.date, []);
           dayMap.get(t.date).push(t);
@@ -2111,10 +2146,144 @@ class MoneyTrackerApp {
     } catch (e) { console.error("Calendar error:", e); }
   }
 
+  renderCalendarChart() {
+  const canvas = document.getElementById('calendarChart');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+
+  const ctx = canvas.getContext('2d');
+  const H = 260;
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = H * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0, 0, rect.width, H);
+
+  const year = this.calendarMonth.getFullYear();
+  const month = this.calendarMonth.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+
+  const allTxs = [
+    ...this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt && t.date && t.date.startsWith(monthPrefix)),
+    ...this.state.pendingItems.filter(t => t.date && t.date.startsWith(monthPrefix))
+  ];
+
+  if (allTxs.length === 0) {
+    ctx.fillStyle = '#8a8f9e';
+    ctx.font = '13px Inter';
+    ctx.textAlign = 'center';
+    ctx.fillText('No transactions this month', rect.width / 2, H / 2);
+    return;
+  }
+
+  const dailyNet = new Array(daysInMonth).fill(0);
+  allTxs.forEach(t => {
+    const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+    if (flow === 'Internal Transfer' || t.category === 'Transfers') return;
+    const amt = parseFloat(t.amount) || 0;
+    const day = parseInt(t.date.slice(8, 10), 10);
+    if (day >= 1 && day <= daysInMonth) dailyNet[day - 1] += amt;
+  });
+
+  const cumulative = [];
+  let running = 0;
+  for (let d = 0; d < daysInMonth; d++) {
+    running += dailyNet[d];
+    cumulative.push(running);
+  }
+
+  const minV = Math.min(0, ...cumulative);
+  const maxV = Math.max(0, ...cumulative);
+  const span = (maxV - minV) || 10;
+  const pad = span * 0.1;
+  const yMin = minV - pad;
+  const yMax = maxV + pad;
+
+  const padL = 60, padR = 20, padT = 24, padB = 34;
+  const chartW = rect.width - padL - padR;
+  const chartH = H - padT - padB;
+  const getX = i => padL + (i / Math.max(1, daysInMonth - 1)) * chartW;
+  const getY = v => padT + (1 - (v - yMin) / (yMax - yMin)) * chartH;
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#5a5e6b';
+  ctx.font = '10px JetBrains Mono';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = padT + (chartH / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(padL, y);
+    ctx.lineTo(rect.width - padR, y);
+    ctx.stroke();
+    const val = yMax - ((yMax - yMin) / 4) * i;
+    ctx.fillText(this.fmt(val), padL - 6, y + 3);
+  }
+
+  if (yMin <= 0 && yMax >= 0) {
+    const zeroY = getY(0);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(padL, zeroY);
+    ctx.lineTo(rect.width - padR, zeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.beginPath();
+  cumulative.forEach((v, i) => {
+    const x = getX(i);
+    const y = getY(v);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(getX(daysInMonth - 1), padT + chartH);
+  ctx.lineTo(getX(0), padT + chartH);
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+  grad.addColorStop(0, 'rgba(0,229,255,0.28)');
+  grad.addColorStop(1, 'rgba(0,229,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2.5;
+  cumulative.forEach((v, i) => {
+    const x = getX(i);
+    const y = getY(v);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  const lastX = getX(daysInMonth - 1);
+  const lastY = getY(cumulative[daysInMonth - 1]);
+  ctx.beginPath();
+  ctx.fillStyle = '#00e5ff';
+  ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#5a5e6b';
+  ctx.font = '10px JetBrains Mono';
+  ctx.textAlign = 'center';
+  const maxLabels = Math.floor(chartW / 40);
+  const step = Math.max(1, Math.ceil(daysInMonth / maxLabels));
+  for (let d = 1; d <= daysInMonth; d += step) {
+    ctx.fillText(d, getX(d - 1), H - padB + 16);
+  }
+  if ((daysInMonth - 1) % step !== 0) {
+    ctx.fillText(daysInMonth, getX(daysInMonth - 1), H - padB + 16);
+  }
+  }
+
   changeMonth(btn) {
-    const offset = parseInt(btn.dataset.offset) || 0;
-    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
-    this.renderCalendarView();
+  const offset = parseInt(btn.dataset.offset) || 0;
+  this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
+  this.renderCalendarView();
+  this.renderCalendarChart();
   }
 
   openDayDrawer(dateStr) {
@@ -2126,7 +2295,7 @@ class MoneyTrackerApp {
       drawer.className = 'drawer';
       document.body.appendChild(drawer);
     }
-    const dayTxs = this.state.transactions.filter(t => t.date === dateStr)
+    const dayTxs = this.state.transactions.filter(t => t.date === dateStr && !t.deletedAt)
       .concat(this.state.pendingItems.filter(t => t.date === dateStr));
 
     const classify = (t) => {
@@ -2829,7 +2998,7 @@ class MoneyTrackerApp {
 
       const asOf = loan.balanceAsOf || new Date().toISOString().split('T')[0];
       const payments = this.state.transactions.filter(t => {
-        if (t.status === 'estimated' || t.amount >= 0 || !t.description) return false;
+        if (t.deletedAt || t.status === 'estimated' || t.amount >= 0 || !t.description) return false;
         if (t.date <= asOf) return false;
         const desc = t.description.toUpperCase();
         return filters.some(f => desc.includes(f.toUpperCase()));
@@ -3152,84 +3321,95 @@ class MoneyTrackerApp {
     this.showToast(`Synced ${groups.size} recurring group${groups.size !== 1 ? 's' : ''}`);
   }
 
+  _formatScenarioFreq(freq) {
+  if (!freq) return 'Monthly';
+  const int = Math.max(1, freq.interval || 1);
+  const word = (freq.freq || 'months').replace(/s$/, '');
+  return int === 1 ? `Every ${word}` : `Every ${int} ${word}s`;
+  }
+
   renderForecaster() {
-    const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
-    const avgInc = gi('fcAvgIncome');
-    const avgFix = gi('fcAvgFixed');
-    const avgVar = gi('fcAvgVariable');
+  const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
+  const avgInc = gi('fcAvgIncome');
+  const avgFix = gi('fcAvgFixed');
+  const avgVar = gi('fcAvgVariable');
 
-    let scenSum = 0;
-    (this.state.scenarios || []).forEach(s => {
-      scenSum += this.computeScenarioImpact(s);
-    });
+  let scenSum = 0;
+  (this.state.scenarios || []).forEach(s => {
+    scenSum += this.computeScenarioImpact(s);
+  });
 
-    const netFull = avgInc - avgFix - avgVar + scenSum;
-    const netBills = avgInc - avgFix + scenSum;
+  const netFull = avgInc - avgFix - avgVar + scenSum;
+  const netBills = avgInc - avgFix + scenSum;
 
-    const cards = document.getElementById('forecastOutputCards');
-    if (cards) cards.innerHTML = `
-      <div class="forecast-col-card">
-        <div class="stat-label">NET MONTHLY SURPLUS (FULL)</div>
-        <div class="stat-value mono" style="color:${netFull >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}">$${netFull.toFixed(2)}</div>
-        <div class="stat-subtext">Includes Income, Bills, Flex & Scenarios</div>
-      </div>
-      <div class="forecast-col-card">
-        <div class="stat-label">NET SURPLUS (BILLS ONLY)</div>
-        <div class="stat-value mono" style="color:${netBills >= 0 ? 'var(--accent-primary)' : 'var(--accent-negative)'}">$${netBills.toFixed(2)}</div>
-        <div class="stat-subtext">Income minus Fixed Bills & Scenarios</div>
+  const cards = document.getElementById('forecastOutputCards');
+  if (cards) cards.innerHTML = `
+    <div class="forecast-col-card">
+      <div class="stat-label">NET MONTHLY SURPLUS (FULL)</div>
+      <div class="stat-value mono" style="color:${netFull >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}">$${netFull.toFixed(2)}</div>
+      <div class="stat-subtext">Includes Income, Bills, Flex & Scenarios</div>
+    </div>
+    <div class="forecast-col-card">
+      <div class="stat-label">NET SURPLUS (BILLS ONLY)</div>
+      <div class="stat-value mono" style="color:${netBills >= 0 ? 'var(--accent-primary)' : 'var(--accent-negative)'}">$${netBills.toFixed(2)}</div>
+      <div class="stat-subtext">Income minus Fixed Bills & Scenarios</div>
+    </div>`;
+
+  const sList = document.getElementById('scenarioList');
+  if (sList) {
+    const typeIcons = { paycheck: '💰', bill: '📄', loan: '🏦', recurring: '🔁', custom: '⚙️' };
+    const typeLabels = { paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring', custom: 'Custom' };
+
+    sList.innerHTML = (this.state.scenarios || []).map(s => {
+      const type = s.type || 'custom';
+      const icon = typeIcons[type] || '⚙️';
+      const typeLabel = typeLabels[type] || 'Scenario';
+
+      const impact = this.computeScenarioImpact({ ...s, active: true });
+      const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+      const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
+
+      let subtitle = '';
+      if (type === 'paycheck' || type === 'bill') {
+        const g = this.getRecurringGroupInfo(s.groupId);
+        if (g) subtitle = `${g.description} → $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)}`;
+        else subtitle = 'Missing recurring item';
+      } else if (type === 'loan') {
+        const l = (this.state.loans || []).find(x => x.id === s.loanId);
+        const ov = s.loanOverrides || {};
+        const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
+        const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
+        const trm = ov.term != null ? ov.term : (l ? (l.term || l.termYears) : 30);
+        const trmU = ov.termUnit != null ? ov.termUnit : (l ? (l.termUnit || 'years') : 'years');
+        subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm} ${trmU}`;
+      } else if (type === 'recurring') {
+        subtitle = s.frequency
+          ? `New ${this._formatScenarioFreq(s.frequency).toLowerCase()} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
+          : 'New recurring item';
+      } else {
+        subtitle = s.frequency
+          ? `${this._formatScenarioFreq(s.frequency)} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
+          : 'Freeform adjustment (monthly)';
+      }
+
+      return `
+      <div class="scenario-item ${s.active ? '' : 'disabled'}">
+        <div style="min-width:0; flex:1;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span style="font-size:0.9rem;">${icon}</span>
+            <span class="badge" style="background:var(--bg-base); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
+          </div>
+          <div style="font-weight:600; font-size:0.85rem; margin-top:4px;">${this.escapeHtml(s.name)}</div>
+          <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(subtitle)}</div>
+          <div class="mono" style="font-size:0.8rem; color:${impactColor}; margin-top:4px;">${impactStr}</div>
+        </div>
+        <div style="display:flex; gap:0.35rem; align-items:center; flex-shrink:0;">
+          <button class="scenario-toggle-btn ${s.active ? 'active' : ''}" data-action="toggleScenario" data-scenario-id="${s.id}">${s.active ? 'ON' : 'OFF'}</button>
+          <button class="btn btn-sm" data-action="openEditScenarioModal" data-scenario-id="${s.id}">⚙️</button>
+        </div>
       </div>`;
-
-    const sList = document.getElementById('scenarioList');
-    if (sList) {
-      const typeIcons = { paycheck: '💰', bill: '📄', loan: '🏦', recurring: '🔁', custom: '⚙️' };
-      const typeLabels = { paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring', custom: 'Custom' };
-
-      sList.innerHTML = (this.state.scenarios || []).map(s => {
-        const type = s.type || 'custom';
-        const icon = typeIcons[type] || '⚙️';
-        const typeLabel = typeLabels[type] || 'Scenario';
-
-        const impact = this.computeScenarioImpact({ ...s, active: true });
-        const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
-        const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
-
-        let subtitle = '';
-        if (type === 'paycheck' || type === 'bill') {
-          const g = this.getRecurringGroupInfo(s.groupId);
-          if (g) subtitle = `${g.description} → $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)}`;
-          else subtitle = 'Missing recurring item';
-        } else if (type === 'loan') {
-          const l = (this.state.loans || []).find(x => x.id === s.loanId);
-          const ov = s.loanOverrides || {};
-          const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
-          const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
-          const trm = ov.term != null ? ov.term : (l ? (l.term || l.termYears) : 30);
-          const trmU = ov.termUnit != null ? ov.termUnit : (l ? (l.termUnit || 'years') : 'years');
-          subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm} ${trmU}`;
-        } else if (type === 'recurring') {
-          subtitle = 'New recurring item';
-        } else {
-          subtitle = 'Freeform adjustment';
-        }
-
-        return `
-        <div class="scenario-item ${s.active ? '' : 'disabled'}">
-          <div style="min-width:0; flex:1;">
-            <div style="display:flex; align-items:center; gap:6px;">
-              <span style="font-size:0.9rem;">${icon}</span>
-              <span class="badge" style="background:var(--bg-base); color:var(--text-muted); border:1px solid var(--border-subtle); font-size:0.6rem;">${typeLabel}</span>
-            </div>
-            <div style="font-weight:600; font-size:0.85rem; margin-top:4px;">${this.escapeHtml(s.name)}</div>
-            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(subtitle)}</div>
-            <div class="mono" style="font-size:0.8rem; color:${impactColor}; margin-top:4px;">${impactStr}</div>
-          </div>
-          <div style="display:flex; gap:0.35rem; align-items:center; flex-shrink:0;">
-            <button class="scenario-toggle-btn ${s.active ? 'active' : ''}" data-action="toggleScenario" data-scenario-id="${s.id}">${s.active ? 'ON' : 'OFF'}</button>
-            <button class="btn btn-sm" data-action="openEditScenarioModal" data-scenario-id="${s.id}">⚙️</button>
-          </div>
-        </div>`;
-      }).join('');
-    }
+    }).join('');
+  }
   }
 
   toggleScenario(btn) {
@@ -3312,13 +3492,14 @@ class MoneyTrackerApp {
   }
 
   renderCharts() {
-    try {
-      if (this.currentTab === 'checking') this.renderCheckingChart();
-      else if (this.currentTab === 'networth') { this.renderNetWorthChart(); this.renderDonutChart(); }
-      else if (this.currentTab === 'debts') this.renderDebtSimulation();
-      else if (this.currentTab === 'forecaster') this.renderForecasterChart();
-      else if (this.currentTab === 'apy') this.renderAPY();
-    } catch (e) { console.error("Chart error:", e); }
+  try {
+    if (this.currentTab === 'checking') this.renderCheckingChart();
+    else if (this.currentTab === 'networth') { this.renderNetWorthChart(); this.renderDonutChart(); }
+    else if (this.currentTab === 'debts') this.renderDebtSimulation();
+    else if (this.currentTab === 'forecaster') this.renderForecasterChart();
+    else if (this.currentTab === 'apy') this.renderAPY();
+    else if (this.currentTab === 'calendar') this.renderCalendarChart();
+  } catch (e) { console.error("Chart error:", e); }
   }
 
   renderCheckingChart() {
@@ -3332,7 +3513,7 @@ class MoneyTrackerApp {
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     ctx.clearRect(0, 0, rect.width, 260);
 
-    const txs = this.state.transactions.filter(t => t.account === 'CHECKING' && t.status !== 'estimated')
+    const txs = this.state.transactions.filter(t => t.account === 'CHECKING' && t.status !== 'estimated' && !t.deletedAt)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
     if (txs.length === 0) {
       ctx.fillStyle = '#8a8f9e'; ctx.font = '14px Inter'; ctx.textAlign = 'center';
@@ -3406,7 +3587,7 @@ class MoneyTrackerApp {
     ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
     ctx.clearRect(0, 0, rect.width, 260);
 
-    const allTxs = this.state.transactions.filter(t => t.status !== 'estimated')
+    const allTxs = this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt)
       .sort((a, b) => new Date(a.date) - new Date(b.date));
     const vaultTotal = this.getBalances('SAVINGS').vaults;
     if (allTxs.length === 0) {
@@ -3528,7 +3709,7 @@ onSpendingCustomInput(val) {
 
   // Filter only posted, negative (spending) transactions in date range
   const txs = this.state.transactions.filter(t => {
-    if (t.status === 'estimated' || parseFloat(t.amount) >= 0) return false;
+    if (t.deletedAt || t.status === 'estimated' || parseFloat(t.amount) >= 0) return false;
     const txDate = new Date(t.date + 'T00:00:00');
     return txDate >= start && txDate <= now;
   });
@@ -3593,60 +3774,140 @@ onSpendingCustomInput(val) {
   }
 
   renderForecasterChart() {
-    const canvas = document.getElementById('forecasterChart');
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return;
-    const ctx = canvas.getContext('2d');
-    canvas.width = rect.width * window.devicePixelRatio;
-    canvas.height = 220 * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    ctx.clearRect(0, 0, rect.width, 220);
+  const canvas = document.getElementById('forecasterChart');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) return;
+  const ctx = canvas.getContext('2d');
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = 220 * window.devicePixelRatio;
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0, 0, rect.width, 220);
 
-    const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
-    const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
-    let scenSum = 0;
-    (this.state.scenarios || []).forEach(s => {
-      scenSum += this.computeScenarioImpact(s);
-    });
-    const netFull = avgInc - avgFix - avgVar + scenSum;
-    const netBills = avgInc - avgFix + scenSum;
-    const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
+  const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+  const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
+  let scenSum = 0;
+  (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
+  const netFull = avgInc - avgFix - avgVar + scenSum;
+  const netBills = avgInc - avgFix + scenSum;
+  const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
 
-    const range = this.chartRanges.forecaster || 'year';
-    let num = 12, stepF = netFull, stepB = netBills, lblFn = i => `M${i}`;
-    if (range === 'week') { num = 7; stepF = netFull / 30.4375; stepB = netBills / 30.4375; lblFn = i => `D${i}`; }
-    else if (range === 'month') { num = 30; stepF = netFull / 30.4375; stepB = netBills / 30.4375; lblFn = i => `D${i}`; }
+  const range = this.chartRanges.forecaster || 'year';
+  const today = new Date();
+  const mnShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  let num, stepF, stepB, lblFn;
 
-    const dataF = [], dataB = [];
-    let bf = start, bb = start;
-    for (let i = 0; i <= num; i++) {
-      dataF.push({ x: i, y: bf }); dataB.push({ x: i, y: bb });
-      bf += stepF; bb += stepB;
-    }
-    const allV = [...dataF.map(d => d.y), ...dataB.map(d => d.y)];
-    const minV = Math.min(...allV), maxV = Math.max(...allV);
-    const pad = (maxV - minV) * 0.1 || 10;
-    const startY = 30, endY = 180, ch = endY - startY;
-    const getX = i => 50 + (i / num) * (rect.width - 70);
-    const getY = v => endY - ((v - (minV - pad)) / ((maxV + pad) - (minV - pad))) * ch;
+  if (range === 'week') {
+    num = 7;
+    stepF = netFull / 30.4375;
+    stepB = netBills / 30.4375;
+    lblFn = i => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      return `${d.getMonth() + 1}/${d.getDate()}`;
+    };
+  } else if (range === 'month') {
+    num = 30;
+    stepF = netFull / 30.4375;
+    stepB = netBills / 30.4375;
+    lblFn = i => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + i);
+      return `${d.getMonth() + 1}/${d.getDate()}`;
+    };
+  } else {
+    num = 12;
+    stepF = netFull;
+    stepB = netBills;
+    lblFn = i => {
+      const d = new Date(today);
+      d.setMonth(d.getMonth() + i);
+      return mnShort[d.getMonth()];
+    };
+  }
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.fillStyle = '#5a5e6b';
-    ctx.font = '10px JetBrains Mono'; ctx.textAlign = 'right';
-    for (let i = 0; i <= 4; i++) {
-      const y = startY + (ch / 4) * i;
-      ctx.beginPath(); ctx.moveTo(50, y); ctx.lineTo(rect.width - 20, y); ctx.stroke();
-      ctx.fillText(this.fmt(maxV + pad - ((maxV + pad - (minV - pad)) / 4) * i), 45, y + 3);
-    }
-    ctx.textAlign = 'center';
-    const st = Math.max(1, Math.ceil(num / 6));
-    for (let i = 0; i <= num; i += st) ctx.fillText(lblFn(i), getX(i), endY + 18);
-    ctx.beginPath(); ctx.strokeStyle = '#00e5ff'; ctx.lineWidth = 2.5;
-    dataF.forEach((d, i) => { if (i === 0) ctx.moveTo(getX(i), getY(d.y)); else ctx.lineTo(getX(i), getY(d.y)); });
+  const dataF = [], dataB = [];
+  let bf = start, bb = start;
+  for (let i = 0; i <= num; i++) {
+    dataF.push({ x: i, y: bf });
+    dataB.push({ x: i, y: bb });
+    bf += stepF;
+    bb += stepB;
+  }
+
+  const allV = [...dataF.map(d => d.y), ...dataB.map(d => d.y)];
+  const minV = Math.min(...allV), maxV = Math.max(...allV);
+  const pad = (maxV - minV) * 0.1 || 10;
+  const startY = 44, endY = 180, ch = endY - startY;
+  const getX = i => 60 + (i / num) * (rect.width - 80);
+  const getY = v => endY - ((v - (minV - pad)) / ((maxV + pad) - (minV - pad))) * ch;
+
+  // Legend (top-left)
+  ctx.font = '600 10px Inter';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#00e5ff';
+  ctx.fillRect(60, 14, 10, 3);
+  ctx.fillStyle = '#8a8f9e';
+  ctx.fillText('Full Net', 75, 20);
+  ctx.fillStyle = '#b26bff';
+  ctx.fillRect(155, 14, 10, 3);
+  ctx.fillStyle = '#8a8f9e';
+  ctx.fillText('Bills Only', 170, 20);
+
+  // Range hint (top-right)
+  const rangeLabel = range === 'week' ? '7 days' : range === 'month' ? '30 days' : '12 months';
+  ctx.fillStyle = '#5a5e6b';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Forward ${rangeLabel}`, rect.width - 20, 20);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillStyle = '#5a5e6b';
+  ctx.font = '10px JetBrains Mono';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const y = startY + (ch / 4) * i;
+    ctx.beginPath();
+    ctx.moveTo(60, y);
+    ctx.lineTo(rect.width - 20, y);
     ctx.stroke();
-    ctx.beginPath(); ctx.strokeStyle = '#b26bff'; ctx.lineWidth = 2.5;
-    dataB.forEach((d, i) => { if (i === 0) ctx.moveTo(getX(i), getY(d.y)); else ctx.lineTo(getX(i), getY(d.y)); });
-    ctx.stroke();
+    ctx.fillText(this.fmt(maxV + pad - ((maxV + pad - (minV - pad)) / 4) * i), 55, y + 3);
+  }
+
+  // X labels
+  ctx.textAlign = 'center';
+  const st = Math.max(1, Math.ceil(num / 6));
+  for (let i = 0; i <= num; i += st) ctx.fillText(lblFn(i), getX(i), endY + 18);
+
+  // Full Net line
+  ctx.beginPath();
+  ctx.strokeStyle = '#00e5ff';
+  ctx.lineWidth = 2.5;
+  dataF.forEach((d, i) => {
+    const x = getX(i), y = getY(d.y);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Bills Only line
+  ctx.beginPath();
+  ctx.strokeStyle = '#b26bff';
+  ctx.lineWidth = 2.5;
+  dataB.forEach((d, i) => {
+    const x = getX(i), y = getY(d.y);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Endpoint dots
+  ctx.beginPath();
+  ctx.fillStyle = '#00e5ff';
+  ctx.arc(getX(num), getY(dataF[num].y), 3.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.fillStyle = '#b26bff';
+  ctx.arc(getX(num), getY(dataB[num].y), 3.5, 0, Math.PI * 2);
+  ctx.fill();
   }
 
   openModal(html) {
@@ -3942,7 +4203,8 @@ onSpendingCustomInput(val) {
                 t.account === target &&
                 t.date === date &&
                 Math.abs(t.amount - amt) < 0.01 &&
-                t.description === desc
+                t.description === desc &&
+                !t.deletedAt
               );
               if (exists) return;
 
@@ -4248,6 +4510,7 @@ onSpendingCustomInput(val) {
 
     let count = 0;
     this.state.transactions.forEach(t => {
+      if (t.deletedAt) return;
       if (matches(t.description) || matches(t.nickname)) {
         if (nick) t.nickname = nick;
         if (cat) { t.category = cat; t.locked = true; }
@@ -4296,114 +4559,134 @@ onSpendingCustomInput(val) {
   }
 
   onScenarioTypeChange() {
-    const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
-    const el = document.getElementById('scenarioTypeFields');
-    if (!el) return;
+  const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
+  const el = document.getElementById('scenarioTypeFields');
+  if (!el) return;
 
-    if (type === 'custom' || type === 'recurring') {
-      el.innerHTML = `
-        <label class="stat-label">Monthly Impact ($) — positive for income, negative for expense</label>
+  if (type === 'custom' || type === 'recurring') {
+    el.innerHTML = `
+      <div>
+        <label class="stat-label">Amount ($) per occurrence</label>
         <input type="number" step="0.01" id="scenarioAmountInput" value="0">
         <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
-          ${type === 'recurring' ? 'Adds a new recurring line to the projection.' : 'Freely adds or subtracts from monthly net.'}
-        </div>`;
-      return;
-    }
-
-    if (type === 'paycheck') {
-      const groups = this.getRecurringGroups(['Income']);
-      if (!groups.length) {
-        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-          No recurring income items found. Add one on the Calendar tab first.
-        </div>`;
-        return;
-      }
-      el.innerHTML = `
+          Positive for income, negative for expense.
+        </div>
+      </div>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
         <div>
-          <label class="stat-label">Recurring Income</label>
-          <select id="scenarioGroupInput">
-            ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)}</option>`).join('')}
+          <label class="stat-label">Every</label>
+          <input type="number" id="scenarioInterval" value="1" min="1">
+        </div>
+        <div>
+          <label class="stat-label">Unit</label>
+          <select id="scenarioFreq">
+            <option value="days">Day(s)</option>
+            <option value="weeks">Week(s)</option>
+            <option value="months" selected>Month(s)</option>
+            <option value="years">Year(s)</option>
           </select>
         </div>
-        <div style="margin-top:0.5rem;">
-          <label class="stat-label">New Amount ($)</label>
-          <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
-        </div>
-        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
-          The projection will use the new amount instead of the original for this income.
-        </div>`;
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+        The projection will normalize this to a monthly impact automatically.
+      </div>`;
+    return;
+  }
+
+  if (type === 'paycheck') {
+    const groups = this.getRecurringGroups(['Income']);
+    if (!groups.length) {
+      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No recurring income items found. Add one on the Calendar tab first.
+      </div>`;
       return;
     }
+    el.innerHTML = `
+      <div>
+        <label class="stat-label">Recurring Income</label>
+        <select id="scenarioGroupInput">
+          ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-top:0.5rem;">
+        <label class="stat-label">New Amount ($)</label>
+        <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+        The projection will use the new amount instead of the original for this income.
+      </div>`;
+    return;
+  }
 
-    if (type === 'bill') {
-      const groups = this.getRecurringGroups(['Bills and Utilities', 'Subscriptions']);
-      if (!groups.length) {
-        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-          No recurring bills found. Add one on the Calendar tab first.
-        </div>`;
-        return;
-      }
-      el.innerHTML = `
+  if (type === 'bill') {
+    const groups = this.getRecurringGroups(['Bills and Utilities', 'Subscriptions']);
+    if (!groups.length) {
+      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No recurring bills found. Add one on the Calendar tab first.
+      </div>`;
+      return;
+    }
+    el.innerHTML = `
+      <div>
+        <label class="stat-label">Recurring Bill</label>
+        <select id="scenarioGroupInput">
+          ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)} (${this.escapeHtml(g.category)})</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-top:0.5rem;">
+        <label class="stat-label">New Amount ($)</label>
+        <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+        Only the projection changes — the original bill on the Calendar stays the same.
+      </div>`;
+    return;
+  }
+
+  if (type === 'loan') {
+    const loans = this.state.loans || [];
+    if (!loans.length) {
+      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No loans found. Add one on the Debts tab first.
+      </div>`;
+      return;
+    }
+    const l = loans[0];
+    const term = l.term || l.termYears || 30;
+    const termUnit = l.termUnit || 'years';
+    el.innerHTML = `
+      <div>
+        <label class="stat-label">Loan</label>
+        <select id="scenarioLoanInput" onchange="app.onScenarioLoanChange()">
+          ${loans.map(x => `<option value="${x.id}">${this.escapeHtml(x.name)} — $${(parseFloat(x.balance) || 0).toFixed(2)}</option>`).join('')}
+        </select>
+      </div>
+      <div style="margin-top:0.5rem;">
+        <label class="stat-label">Balance ($)</label>
+        <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance) || 0).toFixed(2)}">
+      </div>
+      <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.5rem; margin-top:0.5rem;">
         <div>
-          <label class="stat-label">Recurring Bill</label>
-          <select id="scenarioGroupInput">
-            ${groups.map(g => `<option value="${g.groupId}">${this.escapeHtml(g.description)} — $${Math.abs(g.amount).toFixed(2)} (${this.escapeHtml(g.category)})</option>`).join('')}
+          <label class="stat-label">Term</label>
+          <input type="number" id="scenarioLoanTerm" value="${term}">
+        </div>
+        <div>
+          <label class="stat-label">Unit</label>
+          <select id="scenarioLoanTermUnit">
+            <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
+            <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
           </select>
         </div>
-        <div style="margin-top:0.5rem;">
-          <label class="stat-label">New Amount ($)</label>
-          <input type="number" step="0.01" id="scenarioNewAmountInput" value="${Math.abs(groups[0].amount).toFixed(2)}">
-        </div>
-        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
-          Only the projection changes — the original bill on the Calendar stays the same.
-        </div>`;
-      return;
-    }
-
-    if (type === 'loan') {
-      const loans = this.state.loans || [];
-      if (!loans.length) {
-        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-          No loans found. Add one on the Debts tab first.
-        </div>`;
-        return;
-      }
-      const l = loans[0];
-      const term = l.term || l.termYears || 30;
-      const termUnit = l.termUnit || 'years';
-      el.innerHTML = `
-        <div>
-          <label class="stat-label">Loan</label>
-          <select id="scenarioLoanInput" onchange="app.onScenarioLoanChange()">
-            ${loans.map(x => `<option value="${x.id}">${this.escapeHtml(x.name)} — $${(parseFloat(x.balance) || 0).toFixed(2)}</option>`).join('')}
-          </select>
-        </div>
-        <div style="margin-top:0.5rem;">
-          <label class="stat-label">Balance ($)</label>
-          <input type="number" step="0.01" id="scenarioLoanBalance" value="${(parseFloat(l.balance) || 0).toFixed(2)}">
-        </div>
-        <div style="display:grid; grid-template-columns:2fr 1fr; gap:0.5rem; margin-top:0.5rem;">
-          <div>
-            <label class="stat-label">Term</label>
-            <input type="number" id="scenarioLoanTerm" value="${term}">
-          </div>
-          <div>
-            <label class="stat-label">Unit</label>
-            <select id="scenarioLoanTermUnit">
-              <option value="years" ${termUnit === 'years' ? 'selected' : ''}>Years</option>
-              <option value="months" ${termUnit === 'months' ? 'selected' : ''}>Months</option>
-            </select>
-          </div>
-        </div>
-        <div style="margin-top:0.5rem;">
-          <label class="stat-label">Rate (%)</label>
-          <input type="number" step="0.01" id="scenarioLoanRate" value="${l.rate}">
-        </div>
-        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
-          The monthly principal &amp; interest payment is subtracted as an expense in the projection.
-        </div>`;
-      return;
-    }
+      </div>
+      <div style="margin-top:0.5rem;">
+        <label class="stat-label">Rate (%)</label>
+        <input type="number" step="0.01" id="scenarioLoanRate" value="${l.rate}">
+      </div>
+      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
+        The monthly principal &amp; interest payment is subtracted as an expense in the projection.
+      </div>`;
+    return;
+  }
   }
 
   onScenarioLoanChange() {
@@ -4421,59 +4704,66 @@ onSpendingCustomInput(val) {
     if (termUnitEl) termUnitEl.value = l.termUnit || 'years';
   }
 
-  saveScenario() {
-    const type = document.getElementById('scenarioTypeInput').value;
-    const rawName = document.getElementById('scenarioNameInput').value.trim();
-    const scenario = {
-      id: `sc_${Date.now()}`,
-      type,
-      name: rawName || 'Unnamed Scenario',
-      active: true,
-      amount: 0,
-      groupId: null,
-      loanId: null,
-      loanOverrides: null
+ saveScenario() {
+  const type = document.getElementById('scenarioTypeInput').value;
+  const rawName = document.getElementById('scenarioNameInput').value.trim();
+  const scenario = {
+    id: `sc_${Date.now()}`,
+    type,
+    name: rawName || 'Unnamed Scenario',
+    active: true,
+    amount: 0,
+    frequency: null,
+    groupId: null,
+    loanId: null,
+    loanOverrides: null
+  };
+
+  if (type === 'custom' || type === 'recurring') {
+    const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+    if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+    scenario.amount = amt;
+    scenario.frequency = {
+      interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
+      freq: document.getElementById('scenarioFreq')?.value || 'months'
     };
-
-    if (type === 'custom' || type === 'recurring') {
-      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
-      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-      scenario.amount = amt;
-      if (!rawName) scenario.name = type === 'recurring' ? 'New recurring item' : 'Custom scenario';
-    } else if (type === 'paycheck' || type === 'bill') {
-      const groupId = document.getElementById('scenarioGroupInput')?.value;
-      if (!groupId) { alert('Select a recurring item.'); return; }
-      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
-      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
-      const info = this.getRecurringGroupInfo(groupId);
-      scenario.groupId = groupId;
-      scenario.amount = Math.abs(amt);
-      if (!rawName) {
-        scenario.name = `${type === 'paycheck' ? 'Paycheck' : 'Bill'}: ${info ? info.description : 'adjustment'}`;
-      }
-    } else if (type === 'loan') {
-      const loanId = document.getElementById('scenarioLoanInput')?.value;
-      if (!loanId) { alert('Select a loan.'); return; }
-      const loan = (this.state.loans || []).find(l => l.id === loanId);
-      scenario.loanId = loanId;
-      scenario.loanOverrides = {
-        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
-        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
-        termUnit: document.getElementById('scenarioLoanTermUnit').value
-      };
-      const months = scenario.loanOverrides.termUnit === 'years' ? scenario.loanOverrides.term * 12 : scenario.loanOverrides.term;
-      const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, months);
-      scenario.amount = -pi;
-      if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
+    if (!rawName) {
+      scenario.name = type === 'recurring' ? 'New recurring item' : 'Custom scenario';
     }
-
-    this.state.scenarios.push(scenario);
-    this.saveState();
-    this.closeModal();
-    this.renderForecaster();
-    this.showToast('Scenario added');
+  } else if (type === 'paycheck' || type === 'bill') {
+    const groupId = document.getElementById('scenarioGroupInput')?.value;
+    if (!groupId) { alert('Select a recurring item.'); return; }
+    const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+    if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+    const info = this.getRecurringGroupInfo(groupId);
+    scenario.groupId = groupId;
+    scenario.amount = Math.abs(amt);
+    if (!rawName) {
+      scenario.name = `${type === 'paycheck' ? 'Paycheck' : 'Bill'}: ${info ? info.description : 'adjustment'}`;
+    }
+  } else if (type === 'loan') {
+    const loanId = document.getElementById('scenarioLoanInput')?.value;
+    if (!loanId) { alert('Select a loan.'); return; }
+    const loan = (this.state.loans || []).find(l => l.id === loanId);
+    scenario.loanId = loanId;
+    scenario.loanOverrides = {
+      balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+      rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+      term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+      termUnit: document.getElementById('scenarioLoanTermUnit').value
+    };
+    const months = scenario.loanOverrides.termUnit === 'years' ? scenario.loanOverrides.term * 12 : scenario.loanOverrides.term;
+    const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, months);
+    scenario.amount = -pi;
+    if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
   }
+
+  this.state.scenarios.push(scenario);
+  this.saveState();
+  this.closeModal();
+  this.renderForecaster();
+  this.showToast('Scenario added');
+ }
 
   openEditScenarioModal(btn) {
     const s = this.state.scenarios.find(x => x.id === btn.dataset.scenarioId);
@@ -4516,88 +4806,99 @@ onSpendingCustomInput(val) {
   }
 
   prefillScenarioEdit(s) {
-    const type = s.type || 'custom';
-    if (type === 'custom' || type === 'recurring') {
-      const el = document.getElementById('scenarioAmountInput');
-      if (el) el.value = (parseFloat(s.amount) || 0).toFixed(2);
-      return;
+  const type = s.type || 'custom';
+  if (type === 'custom' || type === 'recurring') {
+    const el = document.getElementById('scenarioAmountInput');
+    if (el) el.value = (parseFloat(s.amount) || 0).toFixed(2);
+    if (s.frequency) {
+      const intEl = document.getElementById('scenarioInterval');
+      const freqEl = document.getElementById('scenarioFreq');
+      if (intEl) intEl.value = s.frequency.interval || 1;
+      if (freqEl) freqEl.value = s.frequency.freq || 'months';
     }
-    if (type === 'paycheck' || type === 'bill') {
-      const sel = document.getElementById('scenarioGroupInput');
-      if (sel && s.groupId) sel.value = s.groupId;
-      const amtEl = document.getElementById('scenarioNewAmountInput');
-      if (amtEl) amtEl.value = Math.abs(parseFloat(s.amount) || 0).toFixed(2);
-      return;
+    return;
+  }
+  if (type === 'paycheck' || type === 'bill') {
+    const sel = document.getElementById('scenarioGroupInput');
+    if (sel && s.groupId) sel.value = s.groupId;
+    const amtEl = document.getElementById('scenarioNewAmountInput');
+    if (amtEl) amtEl.value = Math.abs(parseFloat(s.amount) || 0).toFixed(2);
+    return;
+  }
+  if (type === 'loan') {
+    const sel = document.getElementById('scenarioLoanInput');
+    if (sel && s.loanId) {
+      sel.value = s.loanId;
+      this.onScenarioLoanChange();
     }
-    if (type === 'loan') {
-      const sel = document.getElementById('scenarioLoanInput');
-      if (sel && s.loanId) {
-        sel.value = s.loanId;
-        this.onScenarioLoanChange();
-      }
-      const ov = s.loanOverrides || {};
-      if (ov.balance != null) {
-        const el = document.getElementById('scenarioLoanBalance');
-        if (el) el.value = parseFloat(ov.balance).toFixed(2);
-      }
-      if (ov.rate != null) {
-        const el = document.getElementById('scenarioLoanRate');
-        if (el) el.value = ov.rate;
-      }
-      if (ov.term != null) {
-        const el = document.getElementById('scenarioLoanTerm');
-        if (el) el.value = ov.term;
-      }
-      if (ov.termUnit != null) {
-        const el = document.getElementById('scenarioLoanTermUnit');
-        if (el) el.value = ov.termUnit;
-      }
+    const ov = s.loanOverrides || {};
+    if (ov.balance != null) {
+      const el = document.getElementById('scenarioLoanBalance');
+      if (el) el.value = parseFloat(ov.balance).toFixed(2);
     }
+    if (ov.rate != null) {
+      const el = document.getElementById('scenarioLoanRate');
+      if (el) el.value = ov.rate;
+    }
+    if (ov.term != null) {
+      const el = document.getElementById('scenarioLoanTerm');
+      if (el) el.value = ov.term;
+    }
+    if (ov.termUnit != null) {
+      const el = document.getElementById('scenarioLoanTermUnit');
+      if (el) el.value = ov.termUnit;
+    }
+  }
   }
 
   saveEditedScenario() {
-    const id = document.getElementById('editScenarioId').value;
-    const sc = this.state.scenarios.find(s => s.id === id);
-    if (!sc) return;
+  const id = document.getElementById('editScenarioId').value;
+  const sc = this.state.scenarios.find(s => s.id === id);
+  if (!sc) return;
 
-    const type = document.getElementById('scenarioTypeInput').value;
-    const rawName = document.getElementById('scenarioNameInput').value.trim();
+  const type = document.getElementById('scenarioTypeInput').value;
+  const rawName = document.getElementById('scenarioNameInput').value.trim();
 
-    sc.type = type;
-    sc.groupId = null;
-    sc.loanId = null;
-    sc.loanOverrides = null;
+  sc.type = type;
+  sc.frequency = null;
+  sc.groupId = null;
+  sc.loanId = null;
+  sc.loanOverrides = null;
 
-    if (type === 'custom' || type === 'recurring') {
-      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
-      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-      sc.amount = amt;
-    } else if (type === 'paycheck' || type === 'bill') {
-      const groupId = document.getElementById('scenarioGroupInput')?.value;
-      if (!groupId) { alert('Select a recurring item.'); return; }
-      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
-      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
-      sc.groupId = groupId;
-      sc.amount = Math.abs(amt);
-    } else if (type === 'loan') {
-      const loanId = document.getElementById('scenarioLoanInput')?.value;
-      if (!loanId) { alert('Select a loan.'); return; }
-      sc.loanId = loanId;
-      sc.loanOverrides = {
-        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
-        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
-        termUnit: document.getElementById('scenarioLoanTermUnit').value
-      };
-      const months = sc.loanOverrides.termUnit === 'years' ? sc.loanOverrides.term * 12 : sc.loanOverrides.term;
-      sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, months);
-    }
+  if (type === 'custom' || type === 'recurring') {
+    const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+    if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+    sc.amount = amt;
+    sc.frequency = {
+      interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
+      freq: document.getElementById('scenarioFreq')?.value || 'months'
+    };
+  } else if (type === 'paycheck' || type === 'bill') {
+    const groupId = document.getElementById('scenarioGroupInput')?.value;
+    if (!groupId) { alert('Select a recurring item.'); return; }
+    const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+    if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+    sc.groupId = groupId;
+    sc.amount = Math.abs(amt);
+  } else if (type === 'loan') {
+    const loanId = document.getElementById('scenarioLoanInput')?.value;
+    if (!loanId) { alert('Select a loan.'); return; }
+    sc.loanId = loanId;
+    sc.loanOverrides = {
+      balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+      rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+      term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+      termUnit: document.getElementById('scenarioLoanTermUnit').value
+    };
+    const months = sc.loanOverrides.termUnit === 'years' ? sc.loanOverrides.term * 12 : sc.loanOverrides.term;
+    sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, months);
+  }
 
-    if (rawName) sc.name = rawName;
-    this.saveState();
-    this.closeModal();
-    this.renderForecaster();
-    this.showToast('Scenario updated');
+  if (rawName) sc.name = rawName;
+  this.saveState();
+  this.closeModal();
+  this.renderForecaster();
+  this.showToast('Scenario updated');
   }
 
   deleteScenario() {
@@ -4609,73 +4910,260 @@ onSpendingCustomInput(val) {
     this.renderForecaster();
   }
 
-  openRecurringModal() {
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h2 style="font-size:1.2rem; font-weight:700;">Add Recurring Item</h2>
-            <button class="btn btn-sm" data-action="closeModal">Close</button>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Description</label><input type="text" id="recDesc"></div>
-            <div><label class="stat-label">Account</label><select id="recAccount">
-              <option value="CHECKING">Checking</option><option value="SAVINGS">Savings</option>
+  /* ============================================================
+   RECURRING ITEMS — Add / List / Edit / Delete
+   ============================================================ */
+
+openRecurringModal() {
+  this._showRecurringForm(null);
+}
+
+openEditRecurringModal(btn) {
+  const groupId = btn.dataset.groupId;
+  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+  if (!items.length) { this.showToast('Recurring item not found'); return; }
+
+  const first = items[0];
+  const cfg = first.ruleConfig || { interval: 1, freq: 'months' };
+  const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+  const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
+
+  this._showRecurringForm({
+    groupId,
+    description: first.description,
+    account: first.account,
+    category: first.category,
+    amount: first.amount,
+    startDate: first.date,
+    interval: cfg.interval || 1,
+    freq: cfg.freq || 'months',
+    endType,
+    count: endVal || 12
+  });
+}
+
+_showRecurringForm(existing) {
+  const isEdit = !!existing;
+  const v = existing || {
+    groupId: null,
+    description: '',
+    account: 'CHECKING',
+    category: 'Bills and Utilities',
+    amount: '',
+    startDate: new Date().toISOString().split('T')[0],
+    interval: 1,
+    freq: 'months',
+    endType: 'count',
+    count: 12
+  };
+
+  const catOpts = CATEGORIES.map(c =>
+    `<option value="${c}" ${v.category === c ? 'selected' : ''}>${c}</option>`
+  ).join('');
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2 style="font-size:1.2rem; font-weight:700;">${isEdit ? '✏️ Edit Recurring Item' : 'Add Recurring Item'}</h2>
+          <button class="btn btn-sm" data-action="closeModal">Close</button>
+        </div>
+        <input type="hidden" id="recGroupId" value="${v.groupId || ''}">
+        <div style="display:flex; flex-direction:column; gap:0.75rem;">
+          <div><label class="stat-label">Description</label><input type="text" id="recDesc" value="${this.escapeHtml(v.description)}"></div>
+          <div><label class="stat-label">Account</label><select id="recAccount">
+            <option value="CHECKING" ${v.account === 'CHECKING' ? 'selected' : ''}>Checking</option>
+            <option value="SAVINGS" ${v.account === 'SAVINGS' ? 'selected' : ''}>Savings</option>
+          </select></div>
+          <div><label class="stat-label">Category</label><select id="recCategory">${catOpts}</select></div>
+          <div><label class="stat-label">Amount ($)</label><input type="number" step="0.01" id="recAmount" value="${v.amount !== '' ? v.amount : ''}"></div>
+          <div><label class="stat-label">Start Date</label><input type="date" id="recStart" value="${v.startDate}"></div>
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+            <div><label class="stat-label">Interval</label><input type="number" id="recInterval" value="${v.interval}" min="1"></div>
+            <div><label class="stat-label">Frequency</label><select id="recFreq">
+              <option value="days" ${v.freq === 'days' ? 'selected' : ''}>Days</option>
+              <option value="weeks" ${v.freq === 'weeks' ? 'selected' : ''}>Weeks</option>
+              <option value="months" ${v.freq === 'months' ? 'selected' : ''}>Months</option>
+              <option value="years" ${v.freq === 'years' ? 'selected' : ''}>Years</option>
             </select></div>
-            <div><label class="stat-label">Category</label><select id="recCategory">
-              ${CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}
-            </select></div>
-            <div><label class="stat-label">Amount ($)</label><input type="number" step="0.01" id="recAmount"></div>
-            <div><label class="stat-label">Start Date</label><input type="date" id="recStart" value="${new Date().toISOString().split('T')[0]}"></div>
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
-              <div><label class="stat-label">Interval</label><input type="number" id="recInterval" value="1" min="1"></div>
-              <div><label class="stat-label">Frequency</label><select id="recFreq">
-                <option value="days">Days</option><option value="weeks" selected>Weeks</option>
-                <option value="months">Months</option><option value="years">Years</option>
-              </select></div>
-            </div>
-            <div><label class="stat-label">End After (occurrences)</label><input type="number" id="recCount" value="12" min="1"></div>
           </div>
-          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn" data-action="closeModal">Cancel</button>
-            <button class="btn btn-primary" data-action="saveRecurring">Save</button>
+          <div>
+            <label class="stat-label">End</label>
+            <select id="recEndType" onchange="app.onRecurringEndTypeChange()">
+              <option value="count" ${v.endType === 'count' ? 'selected' : ''}>After N occurrences</option>
+              <option value="forever" ${v.endType === 'forever' ? 'selected' : ''}>Runs forever (32 mo cap)</option>
+            </select>
+          </div>
+          <div id="recCountWrapper" style="display:${v.endType === 'count' ? 'block' : 'none'};">
+            <label class="stat-label">Number of Occurrences</label>
+            <input type="number" id="recCount" value="${v.count}" min="1" max="200">
           </div>
         </div>
-      </div>`);
+        <div style="display:flex; justify-content:${isEdit ? 'space-between' : 'flex-end'}; gap:0.5rem; margin-top:1.5rem;">
+          ${isEdit ? `<button class="btn btn-danger btn-sm" data-action="deleteRecurringFromEdit">Delete</button>` : ''}
+          <div style="display:flex; gap:0.5rem;">
+            <button class="btn" data-action="closeModal">Cancel</button>
+            <button class="btn btn-primary" data-action="saveRecurringForm">${isEdit ? 'Save Changes' : 'Add'}</button>
+          </div>
+        </div>
+      </div>
+    </div>`);
+}
+
+onRecurringEndTypeChange() {
+  const type = document.getElementById('recEndType')?.value;
+  const wrapper = document.getElementById('recCountWrapper');
+  if (wrapper) wrapper.style.display = type === 'count' ? 'block' : 'none';
+}
+
+openManageRecurringModal() {
+  const groups = this.getRecurringGroups(null);
+
+  const rows = groups.map(g => {
+    const cfg = g.ruleConfig || { interval: 1, freq: 'months' };
+    const int = Math.max(1, cfg.interval || 1);
+    const freq = cfg.freq || 'months';
+    const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+    const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
+
+    const freqWord = freq.slice(0, -1);
+    const freqLabel = int === 1 ? `Every ${freqWord}` : `Every ${int} ${freqWord}s`;
+    const endLabel = endType === 'forever' ? 'Runs forever (32 mo cap)' : `Ends after ${endVal || '?'}`;
+
+    const catColors = CATEGORY_COLORS[g.category] || CATEGORY_COLORS['Miscellaneous'];
+    const amtColor = g.amount >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.75rem 0.9rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
+        <div style="min-width:0; flex:1;">
+          <div style="font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(g.description)}</div>
+          <div style="font-size:0.7rem; color:var(--text-dim); margin-top:3px;">
+            <span class="badge" style="font-size:0.6rem; background:${catColors.bg}; color:${catColors.color}; border:1px solid ${catColors.border};">${this.escapeHtml(g.category)}</span>
+            <span style="margin-left:6px;">${freqLabel} · ${endLabel}</span>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+          <span class="mono" style="font-size:0.85rem; font-weight:700; color:${amtColor};">$${Math.abs(g.amount).toFixed(2)}</span>
+          <button class="btn btn-sm" data-action="openEditRecurringModal" data-group-id="${g.groupId}" title="Edit">✏️</button>
+          <button class="btn btn-sm btn-danger" data-action="deleteRecurringGroup" data-group-id="${g.groupId}" title="Delete">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:720px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2 style="font-size:1.2rem; font-weight:700;">🔄 Recurring Transactions</h2>
+          <button class="btn btn-sm" data-action="closeModal">Close</button>
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; padding:0.6rem 0.85rem; background:rgba(0,229,255,0.05); border:1px solid rgba(0,229,255,0.2); border-radius:var(--radius-sm); line-height:1.5;">
+          Recurring items appear on the Calendar tab and feed the Forecaster's projection.
+          Edit any item to change its amount, frequency, or end date.
+        </div>
+        ${groups.length === 0
+      ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">No recurring items yet.<br><span style="font-size:0.75rem;">Click "+ Add Recurring" below to create one.</span></div>'
+      : rows}
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+          <button class="btn btn-primary btn-sm" data-action="openRecurringModal">+ Add New</button>
+        </div>
+      </div>
+    </div>`);
+}
+
+saveRecurringForm() {
+  const groupId = document.getElementById('recGroupId')?.value || null;
+  const desc = document.getElementById('recDesc').value.trim();
+  const acc = document.getElementById('recAccount').value;
+  const cat = document.getElementById('recCategory').value;
+  const amt = parseFloat(document.getElementById('recAmount').value);
+  const start = document.getElementById('recStart').value;
+  const interval = Math.max(1, parseInt(document.getElementById('recInterval').value) || 1);
+  const freq = document.getElementById('recFreq').value;
+  const endType = document.getElementById('recEndType')?.value || 'count';
+  const rawCount = parseInt(document.getElementById('recCount')?.value) || 12;
+  const count = Math.min(rawCount, 200);
+
+  if (!desc || isNaN(amt) || !start) {
+    alert('Please fill in description, amount, and start date.');
+    return;
   }
 
-  saveRecurring() {
-    const desc = document.getElementById('recDesc').value.trim();
-    const acc = document.getElementById('recAccount').value;
-    const cat = document.getElementById('recCategory').value;
-    const amt = parseFloat(document.getElementById('recAmount').value);
-    const start = document.getElementById('recStart').value;
-    const interval = parseInt(document.getElementById('recInterval').value) || 1;
-    const freq = document.getElementById('recFreq').value;
-    const rawCount = parseInt(document.getElementById('recCount').value) || 12;
-    const count = Math.min(rawCount, 24);
+  const isEdit = !!groupId;
+  const finalGroupId = groupId || `rec_${Date.now()}`;
 
-    if (!desc || isNaN(amt) || !start) { alert('Fill required fields'); return; }
-    const groupId = `rec_${Date.now()}`;
-    let curDate = new Date(start + 'T00:00:00');
-    for (let i = 0; i < count; i++) {
-      const dateStr = `${curDate.getFullYear()}-${String(curDate.getMonth() + 1).padStart(2, '0')}-${String(curDate.getDate()).padStart(2, '0')}`;
-      this.state.transactions.push({
-        id: `est_${Date.now()}_${i}`, groupId, account: acc, date: dateStr,
-        description: desc, category: cat, flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
-        amount: amt, status: 'estimated',
-        ruleConfig: { interval, freq, endType: 'count', endVal: count, count }
-      });
-      if (freq === 'days') curDate.setDate(curDate.getDate() + interval);
-      else if (freq === 'weeks') curDate.setDate(curDate.getDate() + (7 * interval));
-      else if (freq === 'months') curDate.setMonth(curDate.getMonth() + interval);
-      else curDate.setFullYear(curDate.getFullYear() + interval);
-    }
-    this.saveState();
+  const ruleConfig = endType === 'forever'
+    ? { interval, freq, endType: 'forever', maxMonths: 32 }
+    : { interval, freq, endType: 'count', endVal: count, count, maxMonths: 32 };
+
+  if (isEdit) {
+    this.state.transactions = this.state.transactions.filter(
+      t => !(t.status === 'estimated' && t.groupId === finalGroupId)
+    );
+  }
+
+  this.state.transactions.push({
+    id: `est_${Date.now()}_0`,
+    groupId: finalGroupId,
+    isTemplate: true,
+    account: acc,
+    date: start,
+    description: desc,
+    category: cat,
+    flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
+    amount: amt,
+    status: 'estimated',
+    ruleConfig
+  });
+
+  this.expandRecurringTemplates();
+  this.saveState();
+  this.renderTabContent('calendar');
+
+  if (isEdit) {
+    this.openManageRecurringModal();
+    this.showToast('Recurring item updated');
+  } else {
     this.closeModal();
-    this.renderTabContent('calendar');
-    this.showToast(`Added ${count} recurring items`);
+    this.showToast('Recurring item added');
   }
+}
+
+deleteRecurringGroup(btn) {
+  const groupId = btn.dataset.groupId;
+  if (!groupId) return;
+
+  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+  if (!items.length) return;
+
+  if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
+
+  this.state.transactions = this.state.transactions.filter(
+    t => !(t.status === 'estimated' && t.groupId === groupId)
+  );
+  this.saveState();
+  this.renderTabContent('calendar');
+  this.openManageRecurringModal();
+  this.showToast('Recurring item deleted');
+}
+
+deleteRecurringFromEdit() {
+  const groupId = document.getElementById('recGroupId')?.value;
+  if (!groupId) { this.closeModal(); return; }
+
+  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+  if (!items.length) { this.closeModal(); return; }
+
+  if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
+
+  this.state.transactions = this.state.transactions.filter(
+    t => !(t.status === 'estimated' && t.groupId === groupId)
+  );
+  this.saveState();
+  this.closeModal();
+  this.renderTabContent('calendar');
+  this.showToast('Recurring item deleted');
+}
 
   fmt(v) {
     if (isNaN(v) || v === null || v === undefined) return '$0';
@@ -4688,6 +5176,130 @@ onSpendingCustomInput(val) {
     if (str === null || str === undefined) return '';
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
+
+  /* ============================================================
+   SOFT DELETE / TRASH
+   ============================================================ */
+
+softDeleteTransaction(btn) {
+  const id = btn.dataset.txId;
+  const tx = this.state.transactions.find(t => t.id === id);
+  if (!tx || tx.deletedAt) return;
+  tx.deletedAt = new Date().toISOString();
+  this.recalculateBalances();
+  this.saveState();
+  this.renderTabContent('checking');
+  this.showToast('🗑 Moved to Trash');
+}
+
+hardDeletePending(btn) {
+  const id = btn.dataset.txId;
+  if (!confirm('Remove this pending item?')) return;
+  this.state.pendingItems = this.state.pendingItems.filter(p => p.id !== id);
+  this.saveState();
+  this.renderTabContent('checking');
+  this.showToast('Pending item removed');
+}
+
+bulkSoftDeleteSelected() {
+  if (!this.selectedRows.size) return;
+  let count = 0;
+  this.selectedRows.forEach(id => {
+    const tx = this.state.transactions.find(t => t.id === id);
+    if (tx && !tx.deletedAt) { tx.deletedAt = new Date().toISOString(); count++; }
+  });
+  this.selectedRows.clear();
+  this.recalculateBalances();
+  this.saveState();
+  this.renderTabContent('checking');
+  this.showToast(`🗑 Moved ${count} transaction${count !== 1 ? 's' : ''} to Trash`);
+}
+
+restoreTransaction(btn) {
+  const id = btn.dataset.txId;
+  const tx = this.state.transactions.find(t => t.id === id);
+  if (!tx || !tx.deletedAt) return;
+  delete tx.deletedAt;
+  this.recalculateBalances();
+  this.saveState();
+  this.renderTabContent('checking');
+  this.openTrashModal();
+  this.showToast('✓ Transaction restored');
+}
+
+permanentlyDeleteTransaction(btn) {
+  const id = btn.dataset.txId;
+  const tx = this.state.transactions.find(t => t.id === id);
+  if (!tx) return;
+  if (!confirm(`Permanently delete "${tx.description}"?\n\nThis cannot be undone.`)) return;
+  this.state.transactions = this.state.transactions.filter(t => t.id !== id);
+  this.recalculateBalances();
+  this.saveState();
+  this.renderTabContent('checking');
+  this.openTrashModal();
+  this.showToast('Deleted permanently');
+}
+
+emptyTrash() {
+  const items = this.state.transactions.filter(t => t.deletedAt);
+  if (!items.length) return;
+  if (!confirm(`Permanently delete all ${items.length} transaction${items.length !== 1 ? 's' : ''} in the trash?`)) return;
+  if (!confirm('DOUBLE CONFIRMATION: This cannot be undone.')) return;
+  this.state.transactions = this.state.transactions.filter(t => !t.deletedAt);
+  this.saveState();
+  this.renderTabContent('checking');
+  this.closeModal();
+  this.showToast('Trash emptied');
+}
+
+openTrashModal() {
+  const items = this.state.transactions
+    .filter(t => t.deletedAt)
+    .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
+
+  const rows = items.map(t => {
+    const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
+    const amtColor = t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)';
+    return `
+      <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.65rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
+        <div style="min-width:0; flex:1;">
+          <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.nickname || t.description)}</div>
+          <div style="font-size:0.7rem; color:var(--text-dim); margin-top:3px;">
+            <span class="mono">${t.date}</span>
+            <span class="badge" style="font-size:0.6rem; background:${colors.bg}; color:${colors.color}; border:1px solid ${colors.border}; margin-left:6px;">${this.escapeHtml(t.category)}</span>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:0.4rem; flex-shrink:0;">
+          <span class="mono" style="font-size:0.85rem; font-weight:700; color:${amtColor};">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
+          <button class="btn btn-sm" data-action="restoreTransaction" data-tx-id="${t.id}" title="Restore">↩</button>
+          <button class="btn btn-sm btn-danger" data-action="permanentlyDeleteTransaction" data-tx-id="${t.id}" title="Delete permanently">🗑</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:720px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2 style="font-size:1.2rem; font-weight:700;">🗑 Trash</h2>
+          <button class="btn btn-sm" data-action="closeModal">Close</button>
+        </div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-bottom:1rem; padding:0.6rem 0.85rem; background:rgba(255,176,32,0.06); border:1px solid rgba(255,176,32,0.25); border-radius:var(--radius-sm); line-height:1.5;">
+          Deleted transactions sit here until you empty the trash.
+          <strong style="color:var(--accent-pending);">Restore</strong> to bring one back, or <strong style="color:var(--accent-negative);">delete permanently</strong> to purge it forever.
+          Soft-deleted items do not count toward balances or charts.
+        </div>
+        ${items.length === 0
+      ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">Trash is empty.</div>'
+      : rows}
+        ${items.length > 0
+      ? `<div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+               <button class="btn btn-danger btn-sm" data-action="emptyTrash">Empty Trash (${items.length})</button>
+             </div>`
+      : ''}
+      </div>
+    </div>`);
+}
 
   showToast(msg) {
     const c = document.getElementById('toastContainer');
