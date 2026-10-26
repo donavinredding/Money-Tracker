@@ -33,18 +33,14 @@
       </div>
   
       <div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
-        <select id="globalAccountSelect" style="width: 160px;">
-          <option value="ALL">Combined Scope</option>
-          <option value="CHECKING">Checking</option>
-          <option value="SAVINGS">Savings</option>
-        </select>
         <button class="btn btn-sm" data-action="openSettingsModal">⚙ Settings</button>
         <input type="file" id="jsonInput" accept=".json" style="display:none">
       </div>
     </header>
   
     <nav class="nav-tabs" id="tabStrip">
-      <button class="tab-btn active" data-tab="checking">Checking</button>
+      <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+      <button class="tab-btn" data-tab="checking">Checking</button>
       <button class="tab-btn" data-tab="savings">Savings</button>
       <button class="tab-btn" data-tab="networth">Net Worth</button>
       <button class="tab-btn" data-tab="debts">Debt Payoff</button>

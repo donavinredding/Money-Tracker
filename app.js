@@ -112,7 +112,7 @@ class MoneyTrackerApp {
     this.state = this.loadStateSafe();
     this.activeProfile = this._bootstrapActive || 'Default';
     this.theme = this.loadTheme();
-    this.currentTab = 'checking';
+    this.currentTab = 'dashboard';
     this.chartRanges = { checking: 'week', networth: 'year', forecaster: 'year' };
     this.selectedRows = new Set();
     this.calendarMonth = new Date();
@@ -909,6 +909,11 @@ class MoneyTrackerApp {
       const actionEl = e.target.closest('[data-action]');
       if (actionEl) {
         const action = actionEl.dataset.action;
+        if (action === 'switchTab') {
+          e.preventDefault();
+          this.switchTab(actionEl.dataset.tab);
+          return;
+        }
         if (typeof this[action] === 'function') {
           e.preventDefault();
           this[action](actionEl);
@@ -984,6 +989,7 @@ class MoneyTrackerApp {
   renderTabContent(tabId) {
     const main = document.getElementById('mainContent');
     const t = {
+      dashboard: () => this.tplDashboard(),
       checking: () => this.tplChecking(),
       savings: () => this.tplSavings(),
       networth: () => this.tplNetworth(),
@@ -996,6 +1002,7 @@ class MoneyTrackerApp {
     main.innerHTML = (t[tabId] || t.checking)();
 
     try {
+      if (tabId === 'dashboard') this.renderDashboardView();
       if (tabId === 'checking') this.renderCheckingView();
       if (tabId === 'savings') this.renderSavingsView();
       if (tabId === 'networth') this.renderNetWorthView();
@@ -1009,6 +1016,115 @@ class MoneyTrackerApp {
       this.showToast("Render error. Check console.");
     }
     setTimeout(() => { try { this.renderCharts(); } catch (e) { console.error(e); } }, 50);
+  }
+
+    tplDashboard() {
+    return `
+      <section class="view-container active">
+        <div class="stat-header" id="dashboardStats"></div>
+        
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
+          <!-- UPCOMING BILLS CARD -->
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="font-size:1rem; font-weight:600;">Upcoming Bills (Next 7 Days)</h3>
+              <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">View Calendar</button>
+            </div>
+            <div id="dashUpcomingBills"></div>
+          </div>
+
+          <!-- RECENT ACTIVITY CARD -->
+          <div class="card">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="font-size:1rem; font-weight:600;">Recent Activity</h3>
+              <button class="btn btn-sm" data-action="switchTab" data-tab="checking">View All</button>
+            </div>
+            <div id="dashRecentActivity"></div>
+          </div>
+        </div>
+      </section>`;
+  }
+
+  renderDashboardView() {
+    // 1. Top Stats (Net Worth + Monthly Surplus)
+    const chk = this.getBalances('CHECKING');
+    const sav = this.getBalances('SAVINGS');
+    const nw = chk.available + sav.available + chk.vaults;
+
+    // Forecaster surplus math
+    const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const avgInc = gi('fcAvgIncome');
+    const avgFix = gi('fcAvgFixed');
+    const avgVar = gi('fcAvgVariable');
+    let scenSum = 0;
+    (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
+    const netSurplus = avgInc - avgFix - avgVar + scenSum;
+
+    const stats = document.getElementById('dashboardStats');
+    if (stats) stats.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Total Net Worth</div>
+        <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
+        <div class="stat-subtext">Checking + Savings + Vaults</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Projected Monthly Surplus</div>
+        <div class="stat-value mono" style="color:${netSurplus >= 0 ? 'var(--accent-primary)' : 'var(--accent-negative)'}">$${netSurplus.toFixed(2)}</div>
+        <div class="stat-subtext">Based on Forecaster Baseline & Scenarios</div>
+      </div>
+    `;
+
+    // 2. Upcoming Bills (Next 7 Days)
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    const nextWeek = new Date(today);
+    nextWeek.setDate(today.getDate() + 7);
+
+    const bills = this.state.transactions.filter(t => {
+      if (t.status !== 'estimated' || t.deletedAt || t.amount >= 0) return false;
+      const txDate = new Date(t.date + 'T00:00:00');
+      return txDate >= today && txDate <= nextWeek;
+    }).sort((a,b) => new Date(a.date) - new Date(b.date));
+
+    const billsEl = document.getElementById('dashUpcomingBills');
+    if (billsEl) {
+      if (!bills.length) {
+        billsEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No bills due in the next 7 days. 🎉</div>';
+      } else {
+        billsEl.innerHTML = bills.map(t => `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+            <div>
+              <div style="font-weight:600; font-size:0.85rem;">${this.escapeHtml(t.description)}</div>
+              <div style="font-size:0.7rem; color:var(--text-dim);">${t.date}</div>
+            </div>
+            <span class="mono" style="font-weight:700; color:var(--accent-negative);">-$${Math.abs(t.amount).toFixed(2)}</span>
+          </div>
+        `).join('');
+      }
+    }
+
+    // 3. Recent Activity (Last 5 posted transactions)
+    const recent = this.state.transactions
+      .filter(t => t.status !== 'estimated' && !t.deletedAt)
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 5);
+
+    const recentEl = document.getElementById('dashRecentActivity');
+    if (recentEl) {
+      if (!recent.length) {
+        recentEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No posted transactions yet.</div>';
+      } else {
+        recentEl.innerHTML = recent.map(t => `
+          <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
+            <div style="min-width:0;">
+              <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.nickname || t.description)}</div>
+              <div style="font-size:0.7rem; color:var(--text-dim);">${t.date} · ${this.escapeHtml(t.category)}</div>
+            </div>
+            <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'};">$${parseFloat(t.amount).toFixed(2)}</span>
+          </div>
+        `).join('');
+      }
+    }
   }
 
   tplChecking() {
@@ -1408,12 +1524,15 @@ class MoneyTrackerApp {
     return tax;
   }
 
-  renderCheckingView() {
+    renderCheckingView() {
     const bal = this.getBalances('CHECKING');
     const stats = document.getElementById('checkingStats');
     if (stats) stats.innerHTML = `
       <div class="stat-card">
-        <div class="stat-label">Available Balance</div>
+        <div class="stat-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Available Balance</span>
+          <button class="btn btn-sm" data-action="openEditBalanceModal" data-account="CHECKING" style="padding: 0 6px; height: 22px; font-size: 12px; opacity: 0.7;" title="Set Starting Balance">⚙️</button>
+        </div>
         <div class="stat-value mono" style="color:var(--accent-primary)">$${bal.available.toFixed(2)}</div>
         <div class="stat-subtext">Spendable Funds</div>
       </div>
@@ -1503,7 +1622,10 @@ class MoneyTrackerApp {
       <td class="mono" style="color:var(--text-muted)" title="Pending items don't have a posted balance">—</td>
       <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
       <td></td>
-      <td style="cursor:pointer; text-align:center; color:var(--text-muted);" data-action="hardDeletePending" data-tx-id="${t.id}" title="Remove this pending item">✕</td>
+      <td style="text-align:center;">
+        <button class="btn btn-sm" data-action="clearPendingItem" data-tx-id="${t.id}" style="padding: 2px 6px; font-size: 10px; margin-right: 4px; background:rgba(0,255,157,0.1); border-color:var(--accent-positive); color:var(--accent-positive);" title="Mark as Posted">✅</button>
+        <button class="btn btn-sm" data-action="hardDeletePending" data-tx-id="${t.id}" style="padding: 2px 6px; font-size: 10px; background:transparent; border:none; color:var(--text-muted);" title="Delete permanently">✕</button>
+      </td>
     </tr>`;
   }
 
@@ -1524,12 +1646,17 @@ class MoneyTrackerApp {
   </tr>`;
   }
 
-  renderSavingsView() {
+    renderSavingsView() {
     const bal = this.getBalances('SAVINGS');
     const stats = document.getElementById('savingsStats');
     if (stats) stats.innerHTML = `
-      <div class="stat-card"><div class="stat-label">Savings Account Ledger</div>
-        <div class="stat-value mono">$${bal.ledger.toFixed(2)}</div></div>
+      <div class="stat-card">
+        <div class="stat-label" style="display:flex; justify-content:space-between; align-items:center;">
+          <span>Savings Account Ledger</span>
+          <button class="btn btn-sm" data-action="openEditBalanceModal" data-account="SAVINGS" style="padding: 0 6px; height: 22px; font-size: 12px; opacity: 0.7;" title="Set Starting Balance">⚙️</button>
+        </div>
+        <div class="stat-value mono">$${bal.ledger.toFixed(2)}</div>
+      </div>
       <div class="stat-card"><div class="stat-label">Total Vault Earmarks</div>
         <div class="stat-value mono" style="color:var(--accent-secondary)">$${bal.vaults.toFixed(2)}</div></div>`;
 
@@ -1898,16 +2025,31 @@ class MoneyTrackerApp {
     this.showToast('✓ Vaults synced with transaction history');
   }
 
-  recalculateBalances() {
+    recalculateBalances() {
     this.recalculateVaultBalances();
     ['CHECKING', 'SAVINGS'].forEach(acc => {
-      let running = 0;
-      const txs = this.state.transactions.filter(t => t.account === acc && t.status !== 'estimated' && !t.deletedAt)
-        .sort((a, b) => { const dA = new Date(a.date).getTime(), dB = new Date(b.date).getTime(); return dA !== dB ? dA - dB : (a.id || '').localeCompare(b.id || ''); });
+      // Start from the verified balance (defaults to 0 if never set)
+      let running = parseFloat(this.state.accounts[acc]?.verifiedBalance) || 0;
+      
+      const txs = this.state.transactions
+        .filter(t => t.account === acc && t.status !== 'estimated' && !t.deletedAt)
+        .sort((a, b) => { 
+          const dA = new Date(a.date).getTime(), dB = new Date(b.date).getTime(); 
+          return dA !== dB ? dA - dB : (a.id || '').localeCompare(b.id || ''); 
+        });
+
       txs.forEach(tx => {
-        running += (parseFloat(tx.amount) || 0);
-        if (tx.balance !== undefined && tx.balance !== 0) running = parseFloat(tx.balance) || 0;
-        else tx.balance = running;
+        const parsedBal = parseFloat(tx.balance);
+        // If the bank gave us a balance (and it's not 0), trust it and snap to it.
+        const hasBankBal = tx.balance !== undefined && !isNaN(parsedBal) && parsedBal !== 0;
+
+        if (hasBankBal) {
+          running = parsedBal;
+        } else {
+          // No bank balance provided, so we calculate it from the previous running total
+          running += (parseFloat(tx.amount) || 0);
+          tx.balance = running; // Save it so the table shows it
+        }
       });
     });
   }
@@ -3287,7 +3429,7 @@ if ((daysInMonth - 1) % step !== 0) {
       </div>`;
   }
 
-  syncForecaster() {
+    syncForecaster() {
     const estimated = this.state.transactions.filter(t => t.status === 'estimated');
 
     const groups = new Map();
@@ -3315,6 +3457,22 @@ if ((daysInMonth - 1) % step !== 0) {
 
     const incEl = document.getElementById('fcAvgIncome');
     const fixEl = document.getElementById('fcAvgFixed');
+    
+    // Check if the user has already typed in values that are different from the calculation
+    const currentInc = parseFloat(incEl?.value) || 0;
+    const currentFix = parseFloat(fixEl?.value) || 0;
+    const calcInc = parseFloat(inc.toFixed(2));
+    const calcFix = parseFloat(fix.toFixed(2));
+
+    // Only warn if the user has data in the fields AND it doesn't match the new calculation
+    const needsOverwrite = (currentInc > 0 && currentInc !== calcInc) || (currentFix > 0 && currentFix !== calcFix);
+
+    if (needsOverwrite) {
+      if (!confirm("This will overwrite your currently entered Income and Fixed Expenses with the calculated averages from your recurring items.\n\nDo you want to proceed?")) {
+        return; // User clicked Cancel, abort the sync
+      }
+    }
+
     if (incEl) incEl.value = inc.toFixed(2);
     if (fixEl) fixEl.value = fix.toFixed(2);
 
@@ -4210,6 +4368,21 @@ onSpendingCustomInput(val) {
               if (exists) return;
 
               if (desc.toUpperCase().startsWith('SPOTIFY')) desc = 'Spotify';
+              // SMART PENDING MATCH
+              // Look for a pending item with the same account, amount, and a date within 3 days
+              const pIdx = this.state.pendingItems.findIndex(p => {
+                if (p.account !== target) return false;
+                if (Math.abs(p.amount - amt) >= 0.01) return false; // Amount must match exactly
+                const pDate = new Date(p.date + 'T00:00:00');
+                const tDate = new Date(date + 'T00:00:00');
+                const diffDays = Math.abs(pDate - tDate) / (1000 * 60 * 60 * 24);
+                return diffDays <= 3; // Allow a 3-day window for weekends/holidays
+              });
+
+              if (pIdx !== -1) {
+                // We found a match! Remove it from pending so we don't double count
+                this.state.pendingItems.splice(pIdx, 1);
+              }
 
               // Priority-aware rule lookup (respects doesNotContain + first-match-wins)
               let cat = 'Miscellaneous', flow = 'Flexible Spending', nick = null;
@@ -4367,6 +4540,45 @@ onSpendingCustomInput(val) {
     this.closeModal();
     this.renderTabContent(this.currentTab);
     this.showToast(`Transferred $${amount.toFixed(2)}`);
+  }
+
+    openEditBalanceModal(btn) {
+    const acc = btn.dataset.account || 'CHECKING';
+    const current = parseFloat(this.state.accounts[acc]?.verifiedBalance) || 0;
+    
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:440px;">
+          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:1rem;">⚙️ Starting Balance (${acc})</h2>
+          <div style="display:flex; flex-direction:column; gap:0.75rem;">
+            <div>
+              <label class="stat-label">Current Baseline ($)</label>
+              <input type="number" step="0.01" id="editStartingBalance" value="${current.toFixed(2)}">
+              <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.5rem; line-height:1.4;">
+                This is the anchor point used to calculate your running balance. If a bank CSV includes a running balance column, the app will snap to the bank's balance starting from the first imported transaction. If your CSV does <strong>not</strong> include a balance, the app will use this starting point and calculate all running balances from there.
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+            <button class="btn" data-action="closeModal">Cancel</button>
+            <button class="btn btn-primary" data-action="saveEditedBalance" data-account="${acc}">Save Baseline</button>
+          </div>
+        </div>
+      </div>`);
+  }
+
+  saveEditedBalance(btn) {
+    const acc = btn.dataset.account || 'CHECKING';
+    const val = parseFloat(document.getElementById('editStartingBalance').value) || 0;
+    
+    if (!this.state.accounts[acc]) this.state.accounts[acc] = {};
+    this.state.accounts[acc].verifiedBalance = val;
+    
+    this.recalculateBalances();
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent(this.currentTab);
+    this.showToast(`Starting balance updated for ${acc}`);
   }
 
   openEditVaultModal(btn) {
@@ -4559,16 +4771,42 @@ onSpendingCustomInput(val) {
     this.onScenarioTypeChange();
   }
 
+    updateScenarioPreview() {
+    const previewEl = document.getElementById('scenarioImpactPreview');
+    if (!previewEl) return; // Not on the custom/recurring form
+
+    const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value) || 0;
+    const int = Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1);
+    const freq = document.getElementById('scenarioFreq')?.value || 'months';
+
+    const abs = Math.abs(amt);
+    const sign = amt >= 0 ? 1 : -1;
+    let monthly = 0;
+
+    if (freq === 'days') monthly = (abs / int) * (365 / 12);
+    else if (freq === 'weeks') monthly = (abs / int) * (52 / 12);
+    else if (freq === 'months') monthly = abs / int;
+    else if (freq === 'years') monthly = abs / (12 * int);
+    else monthly = abs;
+
+    const finalMonthly = sign * monthly;
+    const formatted = Math.abs(finalMonthly).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const color = finalMonthly >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+    const prefix = finalMonthly >= 0 ? '+' : '-';
+
+    previewEl.innerHTML = `Monthly Impact: <strong style="color:${color};">${prefix}$${formatted} / mo</strong>`;
+  }
+
   onScenarioTypeChange() {
   const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
   const el = document.getElementById('scenarioTypeFields');
   if (!el) return;
 
-  if (type === 'custom' || type === 'recurring') {
+    if (type === 'custom' || type === 'recurring') {
     el.innerHTML = `
       <div>
         <label class="stat-label">Amount ($) per occurrence</label>
-        <input type="number" step="0.01" id="scenarioAmountInput" value="0">
+        <input type="number" step="0.01" id="scenarioAmountInput" value="0" oninput="app.updateScenarioPreview()">
         <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
           Positive for income, negative for expense.
         </div>
@@ -4576,11 +4814,11 @@ onSpendingCustomInput(val) {
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem; margin-top:0.5rem;">
         <div>
           <label class="stat-label">Every</label>
-          <input type="number" id="scenarioInterval" value="1" min="1">
+          <input type="number" id="scenarioInterval" value="1" min="1" oninput="app.updateScenarioPreview()">
         </div>
         <div>
           <label class="stat-label">Unit</label>
-          <select id="scenarioFreq">
+          <select id="scenarioFreq" onchange="app.updateScenarioPreview()">
             <option value="days">Day(s)</option>
             <option value="weeks">Week(s)</option>
             <option value="months" selected>Month(s)</option>
@@ -4588,9 +4826,13 @@ onSpendingCustomInput(val) {
           </select>
         </div>
       </div>
-      <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
-        The projection will normalize this to a monthly impact automatically.
-      </div>`;
+      
+      <!-- THIS IS THE NEW PREVIEW ELEMENT -->
+      <div id="scenarioImpactPreview" style="margin-top:1rem; padding:0.75rem; background:var(--bg-base); border:1px dashed var(--border-subtle); border-radius:var(--radius-sm); font-size:0.85rem; text-align:center;">
+        Monthly Impact: <strong style="color:var(--text-muted);">$0.00 / mo</strong>
+      </div>
+    `;
+    this.updateScenarioPreview(); // Initialize the preview
     return;
   }
 
@@ -4817,6 +5059,7 @@ onSpendingCustomInput(val) {
       if (intEl) intEl.value = s.frequency.interval || 1;
       if (freqEl) freqEl.value = s.frequency.freq || 'months';
     }
+    this.updateScenarioPreview();
     return;
   }
   if (type === 'paycheck' || type === 'bill') {
@@ -5201,6 +5444,42 @@ hardDeletePending(btn) {
   this.renderTabContent('checking');
   this.showToast('Pending item removed');
 }
+
+  clearPendingItem(btn) {
+    const id = btn.dataset.txId;
+    const item = this.state.pendingItems.find(p => p.id === id);
+    if (!item) return;
+
+    // Determine the category if it's missing (fallback to Misc)
+    let cat = item.category;
+    if (!cat) {
+      const rule = this._findMatchingRule(item.description, null);
+      cat = rule && rule.category ? rule.category : 'Miscellaneous';
+    }
+
+    // 1. Move to Posted Transactions
+    this.state.transactions.push({
+      id: `tx_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      account: item.account,
+      date: item.date,
+      description: item.description,
+      nickname: item.nickname,
+      category: cat,
+      flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
+      amount: item.amount,
+      balance: 0, // Will be recalculated by the running balance engine
+      status: 'POSTED'
+    });
+
+    // 2. Remove from Pending
+    this.state.pendingItems = this.state.pendingItems.filter(p => p.id !== id);
+
+    // 3. Recalculate and save
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast('✅ Pending item marked as Posted');
+  }
 
 bulkSoftDeleteSelected() {
   if (!this.selectedRows.size) return;
