@@ -2147,136 +2147,137 @@ class MoneyTrackerApp {
   }
 
   renderCalendarChart() {
-  const canvas = document.getElementById('calendarChart');
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
+const canvas = document.getElementById('calendarChart');
+if (!canvas) return;
+const rect = canvas.getBoundingClientRect();
+if (rect.width === 0 || rect.height === 0) return;
 
-  const ctx = canvas.getContext('2d');
-  const H = 260;
-  canvas.width = rect.width * window.devicePixelRatio;
-  canvas.height = H * window.devicePixelRatio;
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  ctx.clearRect(0, 0, rect.width, H);
+const ctx = canvas.getContext('2d');
+const H = 260;
+canvas.width = rect.width * window.devicePixelRatio;
+canvas.height = H * window.devicePixelRatio;
+ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+ctx.clearRect(0, 0, rect.width, H);
 
-  const year = this.calendarMonth.getFullYear();
-  const month = this.calendarMonth.getMonth();
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+const year = this.calendarMonth.getFullYear();
+const month = this.calendarMonth.getMonth();
+const daysInMonth = new Date(year, month + 1, 0).getDate();
+const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-  const allTxs = [
-    ...this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt && t.date && t.date.startsWith(monthPrefix)),
-    ...this.state.pendingItems.filter(t => t.date && t.date.startsWith(monthPrefix))
-  ];
+// FIXED: Removed 't.status !== estimated' so it includes recurring items
+const allTxs = [
+  ...this.state.transactions.filter(t => !t.deletedAt && t.date && t.date.startsWith(monthPrefix)),
+  ...this.state.pendingItems.filter(t => t.date && t.date.startsWith(monthPrefix))
+];
 
-  if (allTxs.length === 0) {
-    ctx.fillStyle = '#8a8f9e';
-    ctx.font = '13px Inter';
-    ctx.textAlign = 'center';
-    ctx.fillText('No transactions this month', rect.width / 2, H / 2);
-    return;
-  }
-
-  const dailyNet = new Array(daysInMonth).fill(0);
-  allTxs.forEach(t => {
-    const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
-    if (flow === 'Internal Transfer' || t.category === 'Transfers') return;
-    const amt = parseFloat(t.amount) || 0;
-    const day = parseInt(t.date.slice(8, 10), 10);
-    if (day >= 1 && day <= daysInMonth) dailyNet[day - 1] += amt;
-  });
-
-  const cumulative = [];
-  let running = 0;
-  for (let d = 0; d < daysInMonth; d++) {
-    running += dailyNet[d];
-    cumulative.push(running);
-  }
-
-  const minV = Math.min(0, ...cumulative);
-  const maxV = Math.max(0, ...cumulative);
-  const span = (maxV - minV) || 10;
-  const pad = span * 0.1;
-  const yMin = minV - pad;
-  const yMax = maxV + pad;
-
-  const padL = 60, padR = 20, padT = 24, padB = 34;
-  const chartW = rect.width - padL - padR;
-  const chartH = H - padT - padB;
-  const getX = i => padL + (i / Math.max(1, daysInMonth - 1)) * chartW;
-  const getY = v => padT + (1 - (v - yMin) / (yMax - yMin)) * chartH;
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 1;
-  ctx.fillStyle = '#5a5e6b';
-  ctx.font = '10px JetBrains Mono';
-  ctx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const y = padT + (chartH / 4) * i;
-    ctx.beginPath();
-    ctx.moveTo(padL, y);
-    ctx.lineTo(rect.width - padR, y);
-    ctx.stroke();
-    const val = yMax - ((yMax - yMin) / 4) * i;
-    ctx.fillText(this.fmt(val), padL - 6, y + 3);
-  }
-
-  if (yMin <= 0 && yMax >= 0) {
-    const zeroY = getY(0);
-    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(padL, zeroY);
-    ctx.lineTo(rect.width - padR, zeroY);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  ctx.beginPath();
-  cumulative.forEach((v, i) => {
-    const x = getX(i);
-    const y = getY(v);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.lineTo(getX(daysInMonth - 1), padT + chartH);
-  ctx.lineTo(getX(0), padT + chartH);
-  ctx.closePath();
-  const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
-  grad.addColorStop(0, 'rgba(0,229,255,0.28)');
-  grad.addColorStop(1, 'rgba(0,229,255,0)');
-  ctx.fillStyle = grad;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.strokeStyle = '#00e5ff';
-  ctx.lineWidth = 2.5;
-  cumulative.forEach((v, i) => {
-    const x = getX(i);
-    const y = getY(v);
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  const lastX = getX(daysInMonth - 1);
-  const lastY = getY(cumulative[daysInMonth - 1]);
-  ctx.beginPath();
-  ctx.fillStyle = '#00e5ff';
-  ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.fillStyle = '#5a5e6b';
-  ctx.font = '10px JetBrains Mono';
+if (allTxs.length === 0) {
+  ctx.fillStyle = '#8a8f9e';
+  ctx.font = '13px Inter';
   ctx.textAlign = 'center';
-  const maxLabels = Math.floor(chartW / 40);
-  const step = Math.max(1, Math.ceil(daysInMonth / maxLabels));
-  for (let d = 1; d <= daysInMonth; d += step) {
-    ctx.fillText(d, getX(d - 1), H - padB + 16);
-  }
-  if ((daysInMonth - 1) % step !== 0) {
-    ctx.fillText(daysInMonth, getX(daysInMonth - 1), H - padB + 16);
-  }
+  ctx.fillText('No transactions this month', rect.width / 2, H / 2);
+  return;
+}
+
+const dailyNet = new Array(daysInMonth).fill(0);
+allTxs.forEach(t => {
+  const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+  if (flow === 'Internal Transfer' || t.category === 'Transfers') return;
+  const amt = parseFloat(t.amount) || 0;
+  const day = parseInt(t.date.slice(8, 10), 10);
+  if (day >= 1 && day <= daysInMonth) dailyNet[day - 1] += amt;
+});
+
+const cumulative = [];
+let running = 0;
+for (let d = 0; d < daysInMonth; d++) {
+  running += dailyNet[d];
+  cumulative.push(running);
+}
+
+const minV = Math.min(0, ...cumulative);
+const maxV = Math.max(0, ...cumulative);
+const span = (maxV - minV) || 10;
+const pad = span * 0.1;
+const yMin = minV - pad;
+const yMax = maxV + pad;
+
+const padL = 60, padR = 20, padT = 24, padB = 34;
+const chartW = rect.width - padL - padR;
+const chartH = H - padT - padB;
+const getX = i => padL + (i / Math.max(1, daysInMonth - 1)) * chartW;
+const getY = v => padT + (1 - (v - yMin) / (yMax - yMin)) * chartH;
+
+ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+ctx.lineWidth = 1;
+ctx.fillStyle = '#5a5e6b';
+ctx.font = '10px JetBrains Mono';
+ctx.textAlign = 'right';
+for (let i = 0; i <= 4; i++) {
+  const y = padT + (chartH / 4) * i;
+  ctx.beginPath();
+  ctx.moveTo(padL, y);
+  ctx.lineTo(rect.width - padR, y);
+  ctx.stroke();
+  const val = yMax - ((yMax - yMin) / 4) * i;
+  ctx.fillText(this.fmt(val), padL - 6, y + 3);
+}
+
+if (yMin <= 0 && yMax >= 0) {
+  const zeroY = getY(0);
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.setLineDash([4, 4]);
+  ctx.beginPath();
+  ctx.moveTo(padL, zeroY);
+  ctx.lineTo(rect.width - padR, zeroY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+ctx.beginPath();
+cumulative.forEach((v, i) => {
+  const x = getX(i);
+  const y = getY(v);
+  if (i === 0) ctx.moveTo(x, y);
+  else ctx.lineTo(x, y);
+});
+ctx.lineTo(getX(daysInMonth - 1), padT + chartH);
+ctx.lineTo(getX(0), padT + chartH);
+ctx.closePath();
+const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+grad.addColorStop(0, 'rgba(0,229,255,0.28)');
+grad.addColorStop(1, 'rgba(0,229,255,0)');
+ctx.fillStyle = grad;
+ctx.fill();
+
+ctx.beginPath();
+ctx.strokeStyle = '#00e5ff';
+ctx.lineWidth = 2.5;
+cumulative.forEach((v, i) => {
+  const x = getX(i);
+  const y = getY(v);
+  if (i === 0) ctx.moveTo(x, y);
+  else ctx.lineTo(x, y);
+});
+ctx.stroke();
+
+const lastX = getX(daysInMonth - 1);
+const lastY = getY(cumulative[daysInMonth - 1]);
+ctx.beginPath();
+ctx.fillStyle = '#00e5ff';
+ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+ctx.fill();
+
+ctx.fillStyle = '#5a5e6b';
+ctx.font = '10px JetBrains Mono';
+ctx.textAlign = 'center';
+const maxLabels = Math.floor(chartW / 40);
+const step = Math.max(1, Math.ceil(daysInMonth / maxLabels));
+for (let d = 1; d <= daysInMonth; d += step) {
+  ctx.fillText(d, getX(d - 1), H - padB + 16);
+}
+if ((daysInMonth - 1) % step !== 0) {
+  ctx.fillText(daysInMonth, getX(daysInMonth - 1), H - padB + 16);
+}
   }
 
   changeMonth(btn) {
