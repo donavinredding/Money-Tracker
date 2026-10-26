@@ -37,9 +37,19 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
+  overflow-x: clip;
   font-size: 14px;
   line-height: 1.5;
+}
+
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+body.storage-warn-active .sticky-header {
+  top: 44px;
 }
 
 .storage-warning-banner {
@@ -92,14 +102,6 @@ body {
 
 body.storage-warn-active {
   padding-top: 44px;
-}
-
-body.storage-warn-active .top-bar {
-  top: 44px;
-}
-
-body.storage-warn-active .nav-tabs {
-  top: 104px;
 }
 
 @keyframes storagePulse {
@@ -221,9 +223,6 @@ textarea:focus {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 1rem;
-  position: sticky;
-  top: 0;
-  z-index: 100;
 }
 
 .brand {
@@ -246,10 +245,8 @@ textarea:focus {
   border-bottom: 1px solid var(--border-subtle);
   padding: 0 1.5rem;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
-  position: sticky;
-  top: 60px;
-  z-index: 99;
 }
 
 .tab-btn {
