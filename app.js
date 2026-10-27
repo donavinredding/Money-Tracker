@@ -461,6 +461,133 @@ class MoneyTrackerApp {
     this.showToast('Current profile data cleared');
   }
 
+    copyShareLink() {
+    try {
+      const stateStr = JSON.stringify(this.state);
+      // Compress to Base64
+      const encoded = btoa(unescape(encodeURIComponent(stateStr)));
+      
+      // Safety check for browser URL limits (~2MB)
+      if (encoded.length > 1500000) {
+        this.showToast('⚠ Profile too large for a link. Please use Copy Data or Export File.');
+        return;
+      }
+
+      const url = `${window.location.origin}${window.location.pathname}#import=${encoded}`;
+      navigator.clipboard.writeText(url).then(() => {
+        this.showToast('🔗 Magic Link copied!');
+      }).catch(err => {
+        prompt('Could not copy automatically. Copy this link:', url);
+      });
+    } catch (e) {
+      this.showToast('❌ Profile too large for a link. Use Copy Data or Export File.');
+    }
+  }
+
+  copyRawData() {
+    try {
+      const dataStr = JSON.stringify(this.state);
+      navigator.clipboard.writeText(dataStr).then(() => {
+        this.showToast('📋 Data copied! Paste it in an email or note.');
+      });
+    } catch (e) {
+      this.showToast('Failed to copy.');
+    }
+  }
+
+  pasteRawData() {
+    navigator.clipboard.readText().then(text => {
+      if (!text || !text.startsWith('{')) {
+        alert('Clipboard does not contain valid profile data.');
+        return;
+      }
+      try {
+        const parsed = JSON.parse(text);
+        const newName = `Pasted (${new Date().toLocaleDateString()})`;
+        const profiles = this.loadProfiles();
+        profiles[newName] = { state: parsed, savedAt: new Date().toISOString() };
+        
+        this.saveProfiles(profiles);
+        this.activeProfile = newName;
+        this.state = parsed;
+        localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', newName);
+        
+        this.expandRecurringTemplates();
+        this.recalculateBalances();
+        this.applyCustomRules();
+        this.cleanSpotify();
+        this.recalculateLoanBalances();
+        this.renderTabContent('dashboard');
+        this.closeModal();
+        this.showToast(`✅ Imported "${newName}" from clipboard!`);
+      } catch (e) {
+        alert('The pasted text is not a valid Money Tracker profile.');
+      }
+    }).catch(err => {
+      alert('Could not read clipboard. Ensure you have granted browser permission.');
+    });
+  }
+
+  openTransferModal() {
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:480px;">
+          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:0.5rem;">↔️ Transfer Profile</h2>
+          <p style="font-size:0.8rem; color:var(--text-muted); margin-bottom:1.5rem; line-height:1.5;">
+            Move your data to another device. Pick the method that works best for your setup.
+          </p>
+          
+          <div style="display:flex; flex-direction:column; gap:1rem;">
+            
+            <!-- MAGIC LINK -->
+            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
+              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+                <div style="font-weight:700; font-size:0.9rem; color:var(--accent-primary);">🔗 Magic Link</div>
+              </div>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
+                Copies a URL with your profile baked in. Just paste it into your browser on the other device. <strong>(Note: Because your profile is large, this link will be very long. It works in email/notes, but messaging apps might break it).</strong>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="app.copyShareLink()" style="width:100%;">Copy Magic Link</button>
+            </div>
+
+            <!-- COPY/PASTE TEXT -->
+            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-subtle);">
+              <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">📋 Copy & Paste Text</div>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
+                Copies the raw data. Paste it into an email or note to yourself, then open this menu on your phone and hit "Paste Data".
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm" onclick="app.copyRawData()" style="flex:1;">Copy Data</button>
+                <button class="btn btn-sm" onclick="app.pasteRawData()" style="flex:1;">Paste Data</button>
+              </div>
+            </div>
+
+            <!-- FILE TRANSFER -->
+            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-subtle);">
+              <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">📁 File Transfer</div>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
+                Export a <code>.json</code> file and AirDrop it, email it, or drop it into iCloud/Google Drive.
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm" onclick="app.exportCurrentProfile()" style="flex:1;">Export File</button>
+                <button class="btn btn-sm" onclick="app.triggerImportProfile()" style="flex:1;">Import File</button>
+              </div>
+            </div>
+
+          </div>
+
+          <div style="margin-top:1.5rem; padding:0.75rem; background:rgba(255,176,32,0.05); border:1px dashed rgba(255,176,32,0.3); border-radius:var(--radius-sm); text-align:center; font-size:0.75rem; color:var(--text-muted);">
+            💡 <strong>Pro Tip:</strong> You can also just drag and drop a <code>.json</code> file anywhere on this screen to import it instantly!
+          </div>
+
+          <div style="display:flex; justify-content:flex-end; margin-top:1.5rem;">
+            <button class="btn btn-sm" data-action="closeModal">Close</button>
+          </div>
+        </div>
+      </div>
+    `);
+  }
+
   openSettingsModal(screen = 'home') {
     if (screen instanceof HTMLElement) screen = 'home';
 
@@ -884,6 +1011,31 @@ class MoneyTrackerApp {
   }
 
   init() {
+    if (window.location.hash.startsWith('#import=')) {
+      try {
+        const encoded = window.location.hash.replace('#import=', '');
+        const decoded = decodeURIComponent(escape(atob(encoded)));
+        const parsed = JSON.parse(decoded);
+        
+        // Generate a unique profile name
+        const newName = `Shared (${new Date().toLocaleDateString()})`;
+        const profiles = this.loadProfiles();
+        profiles[newName] = { state: parsed, savedAt: new Date().toISOString() };
+        
+        this.saveProfiles(profiles);
+        this.activeProfile = newName;
+        this.state = parsed;
+        localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', newName);
+        
+        // Clear the URL hash so it looks clean
+        window.history.replaceState(null, null, window.location.pathname);
+        
+        setTimeout(() => this.showToast('✅ Profile imported from Magic Link!'), 500);
+      } catch (e) {
+        console.error('Magic link failed:', e);
+        setTimeout(() => this.showToast('❌ Failed to read Magic Link'), 500);
+      }
+    }
     this.expandRecurringTemplates();
     this.applyTheme({ ...DEFAULT_THEME, ...this.theme });
     this.recalculateBalances();
@@ -975,6 +1127,21 @@ class MoneyTrackerApp {
     document.body.addEventListener('click', (e) => {
       if (e.target.classList.contains('modal-overlay')) {
         e.target.classList.remove('active');
+      }
+    });
+    // Drag and Drop JSON Import
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault(); // Prevent browser from opening the file
+    });
+    
+    window.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        if (file.name.endsWith('.json') || file.type === 'application/json') {
+          // Fake the file input event so we can reuse the existing import logic
+          this.importProfile({ target: { files: [file] } });
+        }
       }
     });
   }
