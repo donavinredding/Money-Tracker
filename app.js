@@ -4329,16 +4329,9 @@ onSpendingCustomInput(val) {
         lines.forEach((line, idx) => {
           if (idx === 0 || !line.trim()) return;
 
-          const parts = [];
-          let current = '';
-          let inQuotes = false;
-          for (let i = 0; i < line.length; i++) {
-            const char = line[i];
-            if (char === '"') inQuotes = !inQuotes;
-            else if (char === ',' && !inQuotes) { parts.push(current); current = ''; }
-            else current += char;
-          }
-          parts.push(current);
+           // Bulletproof CSV parser that ignores commas inside quotes
+          const csvRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
+          const parts = line.split(csvRegex).map(s => s.trim().replace(/^"|"$/g, ''));
 
           if (parts.length >= 3) {
             const date = this.normalizeDateToISO(parts[0]);
