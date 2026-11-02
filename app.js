@@ -885,6 +885,7 @@ class MoneyTrackerApp {
 
     s.loans = s.loans || [];
     s.accounts = s.accounts || JSON.parse(JSON.stringify(INITIAL_EMPTY_STATE.accounts));
+    s.lastImportDate = s.lastImportDate || null;
     if (s.accounts.CHECKING) s.accounts.CHECKING.name = s.accounts.CHECKING.name.replace(/\s+\d{4}$/, '');
     if (s.accounts.SAVINGS) s.accounts.SAVINGS.name = s.accounts.SAVINGS.name.replace(/\s+\d{4}$/, '');
     if (!s.taxStates || !Array.isArray(s.taxStates) || !s.taxStates.length) {
@@ -1188,6 +1189,8 @@ class MoneyTrackerApp {
     tplDashboard() {
     return `
       <section class="view-container active">
+        <div id="dashboardPendingReminder"></div>
+
         <div class="stat-header" id="dashboardStats"></div>
         
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
@@ -1213,6 +1216,30 @@ class MoneyTrackerApp {
   }
 
   renderDashboardView() {
+    const lastImport = this.state.lastImportDate ? new Date(this.state.lastImportDate) : null;
+    const daysSinceImport = lastImport ? (new Date() - lastImport) / (1000 * 60 * 60 * 24) : 99;
+    
+    const bannerContainer = document.getElementById('dashboardPendingReminder');
+    if (bannerContainer) {
+      if (daysSinceImport > 2) {
+        bannerContainer.innerHTML = `
+          <div class="card" style="border-color: var(--accent-pending); background: rgba(255,176,32,0.05); margin-bottom: 1.5rem; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+            <div>
+              <h3 style="font-size: 1rem; font-weight: 700; color: var(--accent-pending); margin-bottom: 0.25rem;">⚠️ Time to check for pending charges!</h3>
+              <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0;">
+                It's been ${daysSinceImport === 99 ? 'a while' : Math.floor(daysSinceImport) + ' days'} since your last CSV import. 
+                Download a fresh file from your bank to sync up.
+              </p>
+            </div>
+            <button class="btn btn-sm" data-action="switchTab" data-tab="checking" style="border-color: var(--accent-pending); color: var(--accent-pending);">
+              Go to Checking
+            </button>
+          </div>
+        `;
+      } else {
+        bannerContainer.innerHTML = ''; // Hide if recently imported
+      }
+    }
     // 1. Top Stats (Net Worth + Monthly Surplus)
     const chk = this.getBalances('CHECKING');
     const sav = this.getBalances('SAVINGS');
@@ -4572,6 +4599,7 @@ onSpendingCustomInput(val) {
 
         pending--;
         if (pending === 0) {
+          this.state.lastImportDate = new Date().toISOString();
           this.recalculateBalances();
           this.applyCustomRules();
           this.saveState();
