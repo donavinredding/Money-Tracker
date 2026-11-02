@@ -382,6 +382,34 @@ class MoneyTrackerApp {
     this.showToast(`Exported "${this.activeProfile}"`);
   }
 
+    async shareProfileFile() {
+    try {
+      const dataStr = JSON.stringify(this.state);
+      const fileName = `${this.activeProfile.replace(/[^a-z0-9]/gi, '_')}_Backup.json`;
+      
+      // Create a File object
+      const file = new File([dataStr], fileName, { type: 'application/json' });
+
+      // Check if the browser supports sharing files
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Money Tracker Backup',
+          text: 'Here is my Money Tracker data.'
+        });
+        this.showToast('✅ Shared successfully!');
+      } else {
+        // Fallback for older desktop browsers
+        this.showToast('⚠ Your browser does not support native sharing. Use Export File instead.');
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.error('Share failed:', err);
+        this.showToast('❌ Failed to share file');
+      }
+    }
+  }
+
   triggerImportProfile() {
     const input = document.getElementById('jsonInput');
     input.value = '';
@@ -528,7 +556,10 @@ class MoneyTrackerApp {
     });
   }
 
-  openTransferModal() {
+    openTransferModal() {
+    // Check if native sharing is supported (mostly on mobile)
+    const canShare = navigator.canShare && navigator.canShare({ files: [new File([''], 'test.json', { type: 'application/json' })] });
+
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:480px;">
@@ -539,38 +570,38 @@ class MoneyTrackerApp {
           
           <div style="display:flex; flex-direction:column; gap:1rem;">
             
-            <!-- MAGIC LINK -->
-            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-glow);">
-              <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-                <div style="font-weight:700; font-size:0.9rem; color:var(--accent-primary);">🔗 Magic Link</div>
-              </div>
+            <!-- NATIVE SHARE (Mobile Best) -->
+            ${canShare ? `
+            <div style="background:linear-gradient(135deg, rgba(0,229,255,0.1) 0%, var(--bg-base) 100%); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--accent-primary);">
+              <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem; color:var(--accent-primary);">📱 Share to Apps</div>
               <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
-                Copies a URL with your profile baked in. Just paste it into your browser on the other device. <strong>(Note: Because your profile is large, this link will be very long. It works in email/notes, but messaging apps might break it).</strong>
+                Open your phone's native share menu to send this file directly to <strong>Discord, Google Drive, iCloud, or Messages</strong>.
               </div>
-              <button class="btn btn-sm btn-primary" onclick="app.copyShareLink()" style="width:100%;">Copy Magic Link</button>
+              <button class="btn btn-sm btn-primary" onclick="app.shareProfileFile()" style="width:100%;">Share File</button>
+            </div>
+            ` : ''}
+
+            <!-- FILE TRANSFER -->
+            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-subtle);">
+              <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">📁 Export / Import File</div>
+              <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
+                Download a <code>.json</code> file. You can drag-and-drop this directly into Discord, or upload it to Google Drive to access it from anywhere.
+              </div>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm" onclick="app.exportCurrentProfile()" style="flex:1;">Export File</button>
+                <button class="btn btn-sm" onclick="app.triggerImportProfile()" style="flex:1;">Import File</button>
+              </div>
             </div>
 
             <!-- COPY/PASTE TEXT -->
             <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-subtle);">
               <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">📋 Copy & Paste Text</div>
               <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
-                Copies the raw data. Paste it into an email or note to yourself, then open this menu on your phone and hit "Paste Data".
+                Paste this into a <strong>Google Doc</strong> or an Email. <em>(Warning: Do not paste into Discord text chat, it will hit the 2000-character limit. Upload the file instead).</em>
               </div>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm" onclick="app.copyRawData()" style="flex:1;">Copy Data</button>
                 <button class="btn btn-sm" onclick="app.pasteRawData()" style="flex:1;">Paste Data</button>
-              </div>
-            </div>
-
-            <!-- FILE TRANSFER -->
-            <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-md); border:1px solid var(--border-subtle);">
-              <div style="font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">📁 File Transfer</div>
-              <div style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem; line-height:1.4;">
-                Export a <code>.json</code> file and AirDrop it, email it, or drop it into iCloud/Google Drive.
-              </div>
-              <div style="display:flex; gap:0.5rem;">
-                <button class="btn btn-sm" onclick="app.exportCurrentProfile()" style="flex:1;">Export File</button>
-                <button class="btn btn-sm" onclick="app.triggerImportProfile()" style="flex:1;">Import File</button>
               </div>
             </div>
 
