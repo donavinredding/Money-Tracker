@@ -85,7 +85,7 @@ const INITIAL_EMPTY_STATE = {
     SAVINGS: { id: "SAVINGS", name: "Joint Savings", verifiedBalance: 0.00 }
   },
   vaults: [], pendingItems: [], transactions: [],
-  scenarios: [{ id: "sc_honda", type: "custom", name: "Increase Honda Payment", amount: -100.00, active: true }],
+  scenarios: [],
   suggestedVaults: [], nicknameRules: [], customRules: [], loans: [],
   taxStates: JSON.parse(JSON.stringify(DEFAULT_TAX_STATES)),
   selectedState: 'OK'
