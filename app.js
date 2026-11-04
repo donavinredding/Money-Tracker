@@ -4276,13 +4276,13 @@ onSpendingCustomInput(val) {
   closeModal(forceOrEl = false) {
   let force = forceOrEl === true;
   
-  // If the Sync modal is open and the user didn't explicitly force it closed, auto-fill!
-  if (!force && document.getElementById('reconcileTargetBalance')) {
-    this.saveReconcileItems(true); // Pass 'true' to trigger auto-fill
+  // If the Sync modal is open, auto-fill before closing
+  if (!force && document.getElementById('reconcileGapDisplay')) {
+    this.saveReconcileItems(); 
     return;
   }
   document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
-}
+  }
 
   /* ============================================================
      RULES MODAL — priority + exclude UI
@@ -4656,8 +4656,8 @@ onSpendingCustomInput(val) {
   }
 
   openReconcileModal() {
-  const bal = this.getBalances('CHECKING');
-  const csvBalance = bal.ledger; 
+  const csvBal = this.getBalances('CHECKING').ledger;
+  const webBal = this.getBalances('CHECKING').available;
   
   this.openModal(`
     <div class="modal-overlay active">
@@ -4668,14 +4668,10 @@ onSpendingCustomInput(val) {
         </div>
         
         <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem; line-height:1.4;">
-          Your CSV file says your posted balance is <strong>$${csvBalance.toFixed(2)}</strong>. 
-          What is your bank's <strong>Actual Available Balance</strong> right now? 
+          Your imported CSV shows a posted balance of <strong>$${csvBal.toFixed(2)}</strong>. 
+          The website currently calculates an available balance of <strong>$${webBal.toFixed(2)}</strong>. 
+          This difference is caused by pending charges that haven't cleared the bank yet.
         </p>
-        
-        <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); margin-bottom:1rem;">
-          <label class="stat-label">Bank's Actual Available Balance ($)</label>
-          <input type="number" step="0.01" id="reconcileTargetBalance" value="${csvBalance.toFixed(2)}" oninput="app.updateReconcileGap()" onfocus="this.select()" style="font-size:1.1rem; font-weight:700; color:var(--accent-primary);">
-        </div>
 
         <div id="reconcileGapDisplay" style="padding:1rem; background:var(--bg-base); border-radius:var(--radius-sm); margin-bottom:1rem; text-align:center; border:1px solid var(--border-subtle);">
           <!-- Gap text updates here -->
@@ -4701,19 +4697,17 @@ onSpendingCustomInput(val) {
 }
 
 updateReconcileGap() {
-  const targetInput = document.getElementById('reconcileTargetBalance');
-  if (!targetInput) return;
+  const csvBal = this.getBalances('CHECKING').ledger;
+  const webBal = this.getBalances('CHECKING').available;
   
-  const target = parseFloat(targetInput.value) || 0;
-  const csvBalance = this.getBalances('CHECKING').ledger;
-  const totalGap = target - csvBalance;
-
   let addedPending = 0;
   document.querySelectorAll('.reconcile-item-amount').forEach(input => {
     addedPending += parseFloat(input.value) || 0;
   });
 
-  const remainingGap = totalGap - addedPending;
+  // MATH: CSV (E2) minus (Website Available + New Pending)
+  const totalGap = csvBal - (webBal + addedPending);
+
   const gapDisplay = document.getElementById('reconcileGapDisplay');
   const itemsContainer = document.getElementById('reconcileItemsContainer');
   
@@ -4721,7 +4715,7 @@ updateReconcileGap() {
     if (Math.abs(totalGap) < 0.01) {
       gapDisplay.innerHTML = `
         <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Balances Match</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">No pending charges detected.</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">CSV ($${csvBal.toFixed(2)}) equals Website ($${(webBal + addedPending).toFixed(2)})</div>
       `;
       gapDisplay.style.background = 'rgba(0,255,157,0.1)';
       gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
@@ -4729,25 +4723,15 @@ updateReconcileGap() {
     } else {
       itemsContainer.style.display = 'block';
       
-      // Format the math string: Bank (30.41) - CSV (82.40) = -51.99
-      const mathString = `Bank ($${target.toFixed(2)}) - CSV ($${csvBalance.toFixed(2)}) = $${totalGap.toFixed(2)}`;
+      const mathString = `CSV ($${csvBal.toFixed(2)}) - Website ($${webBal.toFixed(2)}) = $${(csvBal - webBal).toFixed(2)}`;
       
-      if (Math.abs(remainingGap) < 0.01) {
-        gapDisplay.innerHTML = `
-          <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Fully Accounted For</div>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">${mathString}</div>
-        `;
-        gapDisplay.style.background = 'rgba(0,255,157,0.1)';
-        gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
-      } else {
-        gapDisplay.innerHTML = `
-          <div style="font-weight:700; color:var(--accent-pending); font-size:1.1rem;">Remaining Gap: $${Math.abs(remainingGap).toFixed(2)}</div>
-          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">${mathString}</div>
-          ${addedPending !== 0 ? `<div style="font-size:0.75rem; color:var(--text-muted);">Pending Added: $${Math.abs(addedPending).toFixed(2)}</div>` : ''}
-        `;
-        gapDisplay.style.background = 'var(--bg-surface)';
-        gapDisplay.style.borderColor = 'var(--accent-pending)';
-      }
+      gapDisplay.innerHTML = `
+        <div style="font-weight:700; color:var(--accent-pending); font-size:1.1rem;">Remaining Gap: $${Math.abs(totalGap).toFixed(2)}</div>
+        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">${mathString}</div>
+        ${addedPending !== 0 ? `<div style="font-size:0.75rem; color:var(--text-muted); margin-top:4px;">Pending Added: $${Math.abs(addedPending).toFixed(2)}</div>` : ''}
+      `;
+      gapDisplay.style.background = 'var(--bg-surface)';
+      gapDisplay.style.borderColor = 'var(--accent-pending)';
     }
   }
 }
@@ -4756,14 +4740,14 @@ addReconcileItemRow() {
   const list = document.getElementById('reconcileItemsList');
   if (!list) return;
 
-  // Calculate current remaining gap
-  const target = parseFloat(document.getElementById('reconcileTargetBalance')?.value) || 0;
-  const csvBalance = this.getBalances('CHECKING').ledger;
+  // Pre-fill the input with the exact remaining gap
+  const csvBal = this.getBalances('CHECKING').ledger;
+  const webBal = this.getBalances('CHECKING').available;
   let addedPending = 0;
   document.querySelectorAll('.reconcile-item-amount').forEach(input => {
     addedPending += parseFloat(input.value) || 0;
   });
-  const gap = target - (csvBalance + addedPending);
+  const gap = csvBal - (webBal + addedPending);
 
   const row = document.createElement('div');
   row.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center;';
@@ -4780,17 +4764,13 @@ addReconcileItemRow() {
 }
 
 saveReconcileItems() {
-  const targetInput = document.getElementById('reconcileTargetBalance');
-  if (!targetInput) return; 
-
-  const target = parseFloat(targetInput.value) || 0;
-  const csvBalance = this.getBalances('CHECKING').ledger;
-  const totalGap = target - csvBalance;
-
+  const csvBal = this.getBalances('CHECKING').ledger;
+  const webBal = this.getBalances('CHECKING').available;
+  
   let addedPending = 0;
   let addedCount = 0;
 
-  // 1. ALWAYS save whatever specific items the user typed in
+  // 1. Save any specific items the user typed in
   document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
     const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
     const amt = parseFloat(row.querySelector('.reconcile-item-amount').value) || 0;
@@ -4810,7 +4790,7 @@ saveReconcileItems() {
   });
 
   // 2. Calculate if there is still a gap left over
-  const remainingGap = totalGap - addedPending;
+  const remainingGap = csvBal - (webBal + addedPending);
 
   // 3. Auto-fill the rest if there is a gap
   if (Math.abs(remainingGap) > 0.01) {
