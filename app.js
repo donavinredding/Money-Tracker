@@ -4706,28 +4706,18 @@ updateReconcileGap() {
   
   const target = parseFloat(targetInput.value) || 0;
   const csvBalance = this.getBalances('CHECKING').ledger;
-  
-  // 1. Calculate the total gap (e.g. 30.41 - 82.40 = -52.00)
   const totalGap = target - csvBalance;
-  
-  // 2. Calculate how much the user has typed into the pending rows
+
   let addedPending = 0;
   document.querySelectorAll('.reconcile-item-amount').forEach(input => {
     addedPending += parseFloat(input.value) || 0;
   });
 
-  // 3. What is left to account for?
   const remainingGap = totalGap - addedPending;
-
   const gapDisplay = document.getElementById('reconcileGapDisplay');
   const itemsContainer = document.getElementById('reconcileItemsContainer');
   
   if (gapDisplay && itemsContainer) {
-    // Always show the items container if there is a gap to fill
-    if (Math.abs(totalGap) > 0.01) {
-      itemsContainer.style.display = 'block';
-    }
-
     if (Math.abs(totalGap) < 0.01) {
       gapDisplay.innerHTML = `
         <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Balances Match</div>
@@ -4736,20 +4726,28 @@ updateReconcileGap() {
       gapDisplay.style.background = 'rgba(0,255,157,0.1)';
       gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
       itemsContainer.style.display = 'none';
-    } else if (Math.abs(remainingGap) < 0.01) {
-      gapDisplay.innerHTML = `
-        <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Fully Accounted For</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">Total Gap: $${totalGap.toFixed(2)}</div>
-      `;
-      gapDisplay.style.background = 'rgba(0,255,157,0.1)';
-      gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
     } else {
-      gapDisplay.innerHTML = `
-        <div style="font-weight:700; color:var(--accent-pending); font-size:1.1rem;">Remaining Gap: $${Math.abs(remainingGap).toFixed(2)}</div>
-        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">Original Gap: $${Math.abs(totalGap).toFixed(2)} | Pending Added: $${Math.abs(addedPending).toFixed(2)}</div>
-      `;
-      gapDisplay.style.background = 'var(--bg-surface)';
-      gapDisplay.style.borderColor = 'var(--accent-pending)';
+      itemsContainer.style.display = 'block';
+      
+      // Format the math string: Bank (30.41) - CSV (82.40) = -51.99
+      const mathString = `Bank ($${target.toFixed(2)}) - CSV ($${csvBalance.toFixed(2)}) = $${totalGap.toFixed(2)}`;
+      
+      if (Math.abs(remainingGap) < 0.01) {
+        gapDisplay.innerHTML = `
+          <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Fully Accounted For</div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">${mathString}</div>
+        `;
+        gapDisplay.style.background = 'rgba(0,255,157,0.1)';
+        gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
+      } else {
+        gapDisplay.innerHTML = `
+          <div style="font-weight:700; color:var(--accent-pending); font-size:1.1rem;">Remaining Gap: $${Math.abs(remainingGap).toFixed(2)}</div>
+          <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">${mathString}</div>
+          ${addedPending !== 0 ? `<div style="font-size:0.75rem; color:var(--text-muted);">Pending Added: $${Math.abs(addedPending).toFixed(2)}</div>` : ''}
+        `;
+        gapDisplay.style.background = 'var(--bg-surface)';
+        gapDisplay.style.borderColor = 'var(--accent-pending)';
+      }
     }
   }
 }
@@ -4758,20 +4756,30 @@ addReconcileItemRow() {
   const list = document.getElementById('reconcileItemsList');
   if (!list) return;
 
+  // Calculate current remaining gap
+  const target = parseFloat(document.getElementById('reconcileTargetBalance')?.value) || 0;
+  const csvBalance = this.getBalances('CHECKING').ledger;
+  let addedPending = 0;
+  document.querySelectorAll('.reconcile-item-amount').forEach(input => {
+    addedPending += parseFloat(input.value) || 0;
+  });
+  const gap = target - (csvBalance + addedPending);
+
   const row = document.createElement('div');
   row.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center;';
   row.innerHTML = `
     <input type="text" class="reconcile-item-desc" placeholder="Description (e.g. McDonalds)" style="flex:2;">
-    <input type="number" step="0.01" class="reconcile-item-amount" placeholder="Amount (-)" style="flex:1;" oninput="app.updateReconcileGap()">
+    <input type="number" step="0.01" class="reconcile-item-amount" placeholder="Amount (-)" value="${gap !== 0 ? gap.toFixed(2) : ''}" style="flex:1;" oninput="app.updateReconcileGap()">
     <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); app.updateReconcileGap();" style="padding:0.25rem 0.5rem;">✕</button>
   `;
   list.appendChild(row);
   
   // Focus on the description input
   row.querySelector('.reconcile-item-desc').focus();
+  this.updateReconcileGap();
 }
 
-saveReconcileItems(isAutoFill = false) {
+saveReconcileItems() {
   const targetInput = document.getElementById('reconcileTargetBalance');
   if (!targetInput) return; 
 
@@ -4782,28 +4790,26 @@ saveReconcileItems(isAutoFill = false) {
   let addedPending = 0;
   let addedCount = 0;
 
-  // 1. Save any specific items the user typed in
-  if (!isAutoFill) {
-    document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
-      const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
-      const amt = parseFloat(row.querySelector('.reconcile-item-amount').value) || 0;
-      
-      if (amt !== 0) {
-        this.state.pendingItems.push({
-          id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          account: 'CHECKING',
-          date: new Date().toISOString().split('T')[0],
-          description: desc,
-          amount: amt,
-          status: 'pending'
-        });
-        addedPending += amt;
-        addedCount++;
-      }
-    });
-  }
+  // 1. ALWAYS save whatever specific items the user typed in
+  document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
+    const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
+    const amt = parseFloat(row.querySelector('.reconcile-item-amount').value) || 0;
+    
+    if (amt !== 0) {
+      this.state.pendingItems.push({
+        id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        account: 'CHECKING',
+        date: new Date().toISOString().split('T')[0],
+        description: desc,
+        amount: amt,
+        status: 'pending'
+      });
+      addedPending += amt;
+      addedCount++;
+    }
+  });
 
-  // 2. Calculate if there is still a gap
+  // 2. Calculate if there is still a gap left over
   const remainingGap = totalGap - addedPending;
 
   // 3. Auto-fill the rest if there is a gap
@@ -4816,15 +4822,10 @@ saveReconcileItems(isAutoFill = false) {
       amount: remainingGap,
       status: 'pending'
     });
-    if (isAutoFill) {
-      this.showToast('Auto-filled remaining gap.');
-    }
-  } else if (addedCount > 0) {
-    this.showToast('Pending items synced perfectly!');
   }
 
   this.saveState();
-  this.closeModal(true); // Force close so it doesn't loop
+  this.closeModal(true); // Force close
   this.renderTabContent('checking');
 }
 
