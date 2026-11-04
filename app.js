@@ -4276,13 +4276,13 @@ onSpendingCustomInput(val) {
   closeModal(forceOrEl = false) {
   let force = forceOrEl === true;
   
-  // If the Sync modal is open and the user didn't explicitly force it closed, auto-adjust!
+  // If the Sync modal is open and the user didn't explicitly force it closed, auto-fill!
   if (!force && document.getElementById('reconcileTargetBalance')) {
-    this.saveReconcileItems();
+    this.saveReconcileItems(true); // Pass 'true' to trigger auto-fill
     return;
   }
   document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
-  }
+}
 
   /* ============================================================
      RULES MODAL — priority + exclude UI
@@ -4656,110 +4656,134 @@ onSpendingCustomInput(val) {
   }
 
   openReconcileModal() {
-    const bal = this.getBalances('CHECKING');
-    const ledger = bal.ledger;
-    
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal" style="max-width:500px;">
-          <h2 style="font-size:1.2rem; font-weight:700; margin-bottom:0.5rem;">⚖️ Reconcile Pending Items</h2>
-          <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.25rem; line-height:1.4;">
-            Your latest imported ledger balance is <strong>$${ledger.toFixed(2)}</strong>. If your bank app shows a different <strong>available balance</strong>, add the pending items below to bridge the gap.
-          </p>
-          
-          <!-- STEP 1: THE MATH -->
-          <div id="reconcileMathDisplay" style="display:none; background:var(--bg-elevated); border-radius:var(--radius-sm); padding:1rem; margin-bottom:1rem; text-align:center;">
-            <!-- Injected via JS -->
-          </div>
+  const bal = this.getBalances('CHECKING');
+  const csvBalance = bal.ledger; 
+  
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:520px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2 style="font-size:1.2rem; font-weight:700;">⚖️ Bank Sync Check</h2>
+          <button class="btn btn-sm" data-action="closeModal">✕</button>
+        </div>
+        
+        <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem; line-height:1.4;">
+          Your CSV file says your posted balance is <strong>$${csvBalance.toFixed(2)}</strong>. 
+          What is your bank's <strong>Actual Available Balance</strong> right now? 
+        </p>
+        
+        <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); margin-bottom:1rem;">
+          <label class="stat-label">Bank's Actual Available Balance ($)</label>
+          <input type="number" step="0.01" id="reconcileTargetBalance" value="${csvBalance.toFixed(2)}" oninput="app.updateReconcileGap()" onfocus="this.select()" style="font-size:1.1rem; font-weight:700; color:var(--accent-primary);">
+        </div>
 
-          <!-- STEP 2: PENDING ITEMS -->
-          <div id="reconcileItemsContainer" style="display:none; margin-bottom:1rem;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-              <div style="font-weight:600; font-size:0.85rem; color:var(--accent-pending);">Pending Charges</div>
-              <button class="btn btn-sm" onclick="app.addReconcileItemRow()" style="border-color:var(--accent-pending); color:var(--accent-pending);">+ Add Item</button>
-            </div>
-            <div id="reconcileItemsList"></div>
-          </div>
+        <div id="reconcileGapDisplay" style="padding:1rem; background:var(--bg-base); border-radius:var(--radius-sm); margin-bottom:1rem; text-align:center; border:1px solid var(--border-subtle);">
+          <!-- Gap text updates here -->
+        </div>
 
-          <div style="font-size:0.75rem; color:var(--text-pending); background:rgba(255,176,32,0.08); border:1px solid rgba(255,176,32,0.25); padding:0.75rem; border-radius:var(--radius-sm); margin-bottom:1rem;">
-            💡 <strong>Note:</strong> If you close this window, the app will automatically create a <em>"Pending Adjustment"</em> for whatever gap remains so your available balance matches your bank.
+        <div id="reconcileItemsContainer" style="display:none; margin-bottom:1rem;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
+            <div style="font-weight:600; font-size:0.85rem; color:var(--text-main);">Pending Transactions</div>
+            <button class="btn btn-sm btn-primary" onclick="app.addReconcileItemRow()">+ Add Item</button>
           </div>
+          <div id="reconcileItemsList"></div>
+        </div>
 
-          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn btn-sm" data-action="closeModal">Auto-Adjust & Close</button>
-            <button class="btn btn-primary btn-sm" data-action="saveReconcileItems">Save & Sync</button>
-          </div>
+        <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
+          <button class="btn btn-sm" data-action="closeModal">Auto-Fill Remaining Gap</button>
+          <button class="btn btn-primary btn-sm" data-action="saveReconcileItems">Save Pending Items</button>
         </div>
       </div>
-    `);
-    
-    this.updateReconcileGap();
-  }
+    </div>
+  `);
+  
+  this.updateReconcileGap();
+}
 
-  updateReconcileGap() {
-    const mathDisplay = document.getElementById('reconcileMathDisplay');
-    const itemsContainer = document.getElementById('reconcileItemsContainer');
-    if (!mathDisplay || !itemsContainer) return;
+updateReconcileGap() {
+  const targetInput = document.getElementById('reconcileTargetBalance');
+  if (!targetInput) return;
+  
+  const target = parseFloat(targetInput.value) || 0;
+  const csvBalance = this.getBalances('CHECKING').ledger;
+  
+  // 1. Calculate the total gap (e.g. 30.41 - 82.40 = -52.00)
+  const totalGap = target - csvBalance;
+  
+  // 2. Calculate how much the user has typed into the pending rows
+  let addedPending = 0;
+  document.querySelectorAll('.reconcile-item-amount').forEach(input => {
+    addedPending += parseFloat(input.value) || 0;
+  });
 
-    const bal = this.getBalances('CHECKING');
-    const ledger = bal.ledger;
-    
-    let addedPending = 0;
-    document.querySelectorAll('.reconcile-item-amount').forEach(input => {
-      addedPending += parseFloat(input.value) || 0;
-    });
+  // 3. What is left to account for?
+  const remainingGap = totalGap - addedPending;
 
-    // The remaining gap is just the negative of what they've added so far
-    const remainingGap = -addedPending;
-    
-    mathDisplay.style.display = 'block';
-    itemsContainer.style.display = 'block';
+  const gapDisplay = document.getElementById('reconcileGapDisplay');
+  const itemsContainer = document.getElementById('reconcileItemsContainer');
+  
+  if (gapDisplay && itemsContainer) {
+    // Always show the items container if there is a gap to fill
+    if (Math.abs(totalGap) > 0.01) {
+      itemsContainer.style.display = 'block';
+    }
 
-    if (Math.abs(remainingGap) < 0.01) {
-      mathDisplay.innerHTML = `
+    if (Math.abs(totalGap) < 0.01) {
+      gapDisplay.innerHTML = `
         <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Balances Match</div>
-        <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Ready to sync.</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">No pending charges detected.</div>
       `;
+      gapDisplay.style.background = 'rgba(0,255,157,0.1)';
+      gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
+      itemsContainer.style.display = 'none';
+    } else if (Math.abs(remainingGap) < 0.01) {
+      gapDisplay.innerHTML = `
+        <div style="font-weight:700; color:var(--accent-positive); font-size:1.1rem;">✓ Fully Accounted For</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">Total Gap: $${totalGap.toFixed(2)}</div>
+      `;
+      gapDisplay.style.background = 'rgba(0,255,157,0.1)';
+      gapDisplay.style.borderColor = 'rgba(0,255,157,0.3)';
     } else {
-      const color = remainingGap < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)';
-      const sign = remainingGap < 0 ? '-' : '+';
-      mathDisplay.innerHTML = `
-        <div style="display:flex; justify-content:space-between; font-size:0.8rem; color:var(--text-muted); margin-bottom:0.5rem;">
-          <span>Ledger: $${ledger.toFixed(2)}</span>
-          <span>Added: $${addedPending.toFixed(2)}</span>
-        </div>
-        <div style="border-top:1px solid var(--border-subtle); padding-top:0.5rem; display:flex; justify-content:space-between; align-items:center;">
-          <span style="font-weight:600; font-size:0.85rem;">Gap:</span>
-          <span class="mono" style="font-weight:700; font-size:1.1rem; color:${color};">${sign}$${Math.abs(remainingGap).toFixed(2)}</span>
-        </div>
+      gapDisplay.innerHTML = `
+        <div style="font-weight:700; color:var(--accent-pending); font-size:1.1rem;">Remaining Gap: $${Math.abs(remainingGap).toFixed(2)}</div>
+        <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">Original Gap: $${Math.abs(totalGap).toFixed(2)} | Pending Added: $${Math.abs(addedPending).toFixed(2)}</div>
       `;
+      gapDisplay.style.background = 'var(--bg-surface)';
+      gapDisplay.style.borderColor = 'var(--accent-pending)';
     }
   }
+}
 
-  addReconcileItemRow() {
-    const list = document.getElementById('reconcileItemsList');
-    if (!list) return;
+addReconcileItemRow() {
+  const list = document.getElementById('reconcileItemsList');
+  if (!list) return;
 
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center;';
-    row.innerHTML = `
-      <input type="text" class="reconcile-item-desc" placeholder="Name (e.g. McDonalds)" style="flex:2;">
-      <input type="number" step="0.01" class="reconcile-item-amount" placeholder="Amount" oninput="app.updateReconcileGap()" style="flex:1;">
-      <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); app.updateReconcileGap();">✕</button>
-    `;
-    list.appendChild(row);
-    
-    row.querySelector('.reconcile-item-desc').focus();
-    this.updateReconcileGap();
-  }
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex; gap:0.5rem; margin-bottom:0.5rem; align-items:center;';
+  row.innerHTML = `
+    <input type="text" class="reconcile-item-desc" placeholder="Description (e.g. McDonalds)" style="flex:2;">
+    <input type="number" step="0.01" class="reconcile-item-amount" placeholder="Amount (-)" style="flex:1;" oninput="app.updateReconcileGap()">
+    <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); app.updateReconcileGap();" style="padding:0.25rem 0.5rem;">✕</button>
+  `;
+  list.appendChild(row);
+  
+  // Focus on the description input
+  row.querySelector('.reconcile-item-desc').focus();
+}
 
-  saveReconcileItems() {
-    // Ensure the modal is actually open
-    if (!document.getElementById('reconcileMathDisplay')) return;
+saveReconcileItems(isAutoFill = false) {
+  const targetInput = document.getElementById('reconcileTargetBalance');
+  if (!targetInput) return; 
 
-    let addedTotal = 0;
-    let addedCount = 0;
-    
+  const target = parseFloat(targetInput.value) || 0;
+  const csvBalance = this.getBalances('CHECKING').ledger;
+  const totalGap = target - csvBalance;
+
+  let addedPending = 0;
+  let addedCount = 0;
+
+  // 1. Save any specific items the user typed in
+  if (!isAutoFill) {
     document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
       const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
       const amt = parseFloat(row.querySelector('.reconcile-item-amount').value) || 0;
@@ -4773,19 +4797,36 @@ onSpendingCustomInput(val) {
           amount: amt,
           status: 'pending'
         });
-        addedTotal += amt;
+        addedPending += amt;
         addedCount++;
       }
     });
-
-    if (addedCount > 0) {
-      this.showToast('Pending items added.');
-    }
-
-    this.saveState();
-    this.closeModal(true); 
-    this.renderTabContent('checking');
   }
+
+  // 2. Calculate if there is still a gap
+  const remainingGap = totalGap - addedPending;
+
+  // 3. Auto-fill the rest if there is a gap
+  if (Math.abs(remainingGap) > 0.01) {
+    this.state.pendingItems.push({
+      id: `p_${Date.now()}_adj`,
+      account: 'CHECKING',
+      date: new Date().toISOString().split('T')[0],
+      description: 'Pending Adjustment',
+      amount: remainingGap,
+      status: 'pending'
+    });
+    if (isAutoFill) {
+      this.showToast('Auto-filled remaining gap.');
+    }
+  } else if (addedCount > 0) {
+    this.showToast('Pending items synced perfectly!');
+  }
+
+  this.saveState();
+  this.closeModal(true); // Force close so it doesn't loop
+  this.renderTabContent('checking');
+}
 
   savePendingItem() {
     const acc = document.getElementById('pendingAccount').value;
