@@ -1359,7 +1359,7 @@ class MoneyTrackerApp {
         <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
         <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
         <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
-        <button class="btn btn-sm" data-action="openReconcileModal" title="Compare bank balance and auto-fill pending">⚖️ Sync Bank</button>
+        <button class="btn btn-sm" data-action="startBankSync" title="Compare bank balance and auto-fill pending">⚖️ Sync Bank</button>
         <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
     </div>
     <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
