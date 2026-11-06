@@ -967,7 +967,18 @@ class MoneyTrackerApp {
         if (endType === 'count' && endVal && i >= endVal) break;
 
         const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
-        out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
+        
+        // --- NEW: CHECK IF THIS ALREADY HAPPENED ---
+        const alreadyPosted = nonTemplates.some(t =>
+          t.account === tmpl.account &&
+          t.date === dateStr &&
+          t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase()
+        );
+
+        if (!alreadyPosted) {
+          // Only add the estimated transaction if it hasn't already been posted
+          out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
+        }
 
         if (freq === 'days') cur.setDate(cur.getDate() + interval);
         else if (freq === 'weeks') cur.setDate(cur.getDate() + 7 * interval);
@@ -1042,6 +1053,143 @@ class MoneyTrackerApp {
     }
   }
 
+    // 1. Logic to guess the amount based on past history
+  guessNextAmount(originalTx) {
+    const description = originalTx.description;
+    const isIncome = originalTx.amount >= 0;
+
+    const pastTxs = this.state.transactions
+      .filter(t => t.status !== 'estimated' && !t.deletedAt && t.description.toLowerCase().includes(description.toLowerCase()))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3); // Look at the last 3 occurrences
+
+    if (pastTxs.length === 0) return null;
+
+    const sum = pastTxs.reduce((acc, t) => acc + Math.abs(parseFloat(t.amount) || 0), 0);
+    const avg = sum / pastTxs.length;
+    
+    // Preserve the sign based on the original transaction
+    return isIncome ? avg : -avg; 
+  }
+
+  // 2. Check for upcoming reminders on load
+  checkRecurringReminders() {
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    
+    // Find estimated transactions that haven't been reminded yet
+    const upcoming = this.state.transactions.filter(t => {
+      if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed) return false;
+      
+      const txDate = new Date(t.date + 'T00:00:00');
+      const diffTime = txDate - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      const cfg = t.ruleConfig || {};
+      const reminderDays = cfg.reminderDays !== undefined ? cfg.reminderDays : 3;
+      
+      // If it's due in exactly `reminderDays` or less (but not in the past)
+      return diffDays >= 0 && diffDays <= reminderDays;
+    });
+
+    if (upcoming.length > 0) {
+      // Sort by soonest due date
+      upcoming.sort((a,b) => new Date(a.date) - new Date(b.date));
+      this.openRecurringReminderModal(upcoming[0]);
+    }
+  }
+
+  // 3. The Reminder Modal UI
+  openRecurringReminderModal(tx) {
+    const guessed = this.guessNextAmount(tx);
+    const currentAmount = Math.abs(parseFloat(tx.amount) || 0).toFixed(2);
+    const guessStr = guessed ? Math.abs(guessed).toFixed(2) : null;
+
+    this.openModal(`
+      <div class="modal-overlay active">
+        <div class="modal" style="max-width:480px;">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+            <h2 style="font-size:1.2rem; font-weight:700;">🔔 Upcoming Bill Reminder</h2>
+            <button class="btn btn-sm" data-action="closeModal" onclick="app.dismissReminder('${tx.id}')">✕</button>
+          </div>
+          
+          <p style="font-size:0.9rem; color:var(--text-main); margin-bottom:0.5rem; line-height:1.4;">
+            <strong>${this.escapeHtml(tx.description)}</strong> is due on <strong>${tx.date}</strong>.
+          </p>
+          
+          <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); margin-bottom:1rem;">
+            <label class="stat-label">Amount ($)</label>
+            <input type="number" step="0.01" id="reminderNewAmount" value="${currentAmount}" style="font-size:1.2rem; font-weight:700; color:var(--accent-primary);">
+            
+            ${guessStr && guessStr !== currentAmount ? `
+              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.5rem; display:flex; justify-content:space-between; align-items:center;">
+                <span>Average of last 3: <strong>$${guessStr}</strong></span>
+                <button class="btn btn-sm" onclick="document.getElementById('reminderNewAmount').value = '${guessStr}'" style="padding:2px 6px; font-size:0.7rem;">Use Guess</button>
+              </div>
+            ` : ''}
+          </div>
+
+          <div style="display:flex; flex-direction:column; gap:0.5rem;">
+            <button class="btn btn-primary" onclick="app.handleReminderAction('${tx.id}', 'future')">Save & Update Forever</button>
+            <button class="btn" onclick="app.handleReminderAction('${tx.id}', 'once')">Change This Time Only</button>
+            <button class="btn btn-sm" style="background:transparent; border:none; color:var(--text-muted);" onclick="app.dismissReminder('${tx.id}')">Ignore this reminder</button>
+          </div>
+        </div>
+      </div>
+    `);
+  }
+
+    handleReminderAction(txId, mode) {
+    const newAmt = parseFloat(document.getElementById('reminderNewAmount').value);
+    if (isNaN(newAmt)) return;
+
+    // The `txId` passed from the modal is for the specific date instance
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
+
+    if (mode === 'once') {
+      // Edit just this single instance
+      tx.amount = newAmt;
+      tx.reminderDismissed = true; 
+      this.showToast(`Updated this month's ${tx.description}`);
+    } else if (mode === 'future') {
+      // Find the master template for this group and update it
+      const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
+      if (template) {
+        template.amount = newAmt;
+        // Remove all future instances for this group
+        this.state.transactions = this.state.transactions.filter(t => 
+          !(t.groupId === tx.groupId && t.status === 'estimated')
+        );
+        // Re-expand from the updated template
+        this.expandRecurringTemplates();
+        this.showToast(`Updated ${tx.description} for all future months`);
+      } else {
+        // Fallback if template isn't found
+        tx.amount = newAmt;
+      }
+    }
+
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent(this.currentTab);
+    
+    // Check if there are more reminders queued up
+    setTimeout(() => this.checkRecurringReminders(), 500);
+  }
+
+  dismissReminder(txId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (tx) {
+      tx.reminderDismissed = true;
+      this.saveState();
+    }
+    this.closeModal();
+    
+    // Check if there are more reminders queued up
+    setTimeout(() => this.checkRecurringReminders(), 500);
+  }
+
   init() {
     if (window.location.hash.startsWith('#import=')) {
       try {
@@ -1078,6 +1226,7 @@ class MoneyTrackerApp {
     this.bindGlobalEvents();
     this.checkStorageHealth();
     setTimeout(() => this._flushState(), 100);
+    setTimeout(() => this.checkRecurringReminders(), 1500);
   }
 
   bindGlobalEvents() {
@@ -1246,7 +1395,7 @@ class MoneyTrackerApp {
   }
 
   renderDashboardView() {
-    // 1. Top Stats (Net Worth + Monthly Surplus)
+    // 1. Top Stats (Net Worth + Monthly Surplus + Cash Flow Projections)
     const chk = this.getBalances('CHECKING');
     const sav = this.getBalances('SAVINGS');
     const nw = chk.available + sav.available + chk.vaults;
@@ -1260,6 +1409,33 @@ class MoneyTrackerApp {
     (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
     const netSurplus = avgInc - avgFix - avgVar + scenSum;
 
+    // --- NEW: Cash Flow Projection Logic ---
+    const today = new Date(); 
+    today.setHours(0,0,0,0);
+    
+    const getProjectedBalance = (days) => {
+      const targetDate = new Date(today); 
+      targetDate.setDate(today.getDate() + days);
+      
+      // Find all upcoming estimated bills and paychecks in this window
+      const upcoming = this.state.transactions.filter(t => {
+        if (t.status !== 'estimated' || t.deletedAt) return false;
+        const txDate = new Date(t.date + 'T00:00:00');
+        return txDate >= today && txDate <= targetDate;
+      });
+
+      // Sum them up (positive for paychecks, negative for bills)
+      const upcomingTotal = upcoming.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
+      
+      // Add to current checking balance
+      return chk.available + upcomingTotal;
+    };
+
+    const proj7 = getProjectedBalance(7);
+    const proj14 = getProjectedBalance(14);
+    const proj30 = getProjectedBalance(30);
+    // ---------------------------------------
+
     const stats = document.getElementById('dashboardStats');
     if (stats) stats.innerHTML = `
       <div class="stat-card">
@@ -1270,13 +1446,31 @@ class MoneyTrackerApp {
       <div class="stat-card">
         <div class="stat-label">Projected Monthly Surplus</div>
         <div class="stat-value mono" style="color:${netSurplus >= 0 ? 'var(--accent-primary)' : 'var(--accent-negative)'}">$${netSurplus.toFixed(2)}</div>
-        <div class="stat-subtext">Based on Forecaster Baseline & Scenarios</div>
+        <div class="stat-subtext">Based on Forecaster Baseline</div>
+      </div>
+      
+      <!-- NEW CASH FLOW CARD -->
+      <div class="stat-card" style="border-color: rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, var(--bg-surface) 100%);">
+        <div class="stat-label" style="margin-bottom:0.5rem;">Projected Cash Flow</div>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 7 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj7 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj7.toFixed(2)}</span>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 14 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj14 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj14.toFixed(2)}</span>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.25rem; border-top:1px dashed var(--border-subtle);">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 30 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj30 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj30.toFixed(2)}</span>
+        </div>
       </div>
     `;
 
     // 2. Upcoming Bills (Next 7 Days)
-    const today = new Date();
-    today.setHours(0,0,0,0);
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
 
@@ -1358,7 +1552,6 @@ class MoneyTrackerApp {
         <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
         <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
         <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
-        <button class="btn btn-sm" data-action="openImportWizard" data-account="CHECKING" title="Import bank CSV file">📥 Import CSV</button>
         <button class="btn btn-sm" data-action="startBankSync" title="Compare bank balance and auto-fill pending">⚖️ Sync Bank</button>
         <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
     </div>
@@ -1373,7 +1566,7 @@ class MoneyTrackerApp {
           <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
           <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
           <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
-          <th style="width:36px;" title="Delete">Del</th>
+          <th style="width:80px;" title="Actions">Actions</th>
         </tr></thead>
         <tbody id="checkingTableBody"></tbody>
       </table>
@@ -1407,7 +1600,6 @@ class MoneyTrackerApp {
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
             <h3 style="font-size:1rem; font-weight:600;">Savings Ledger</h3>
-            <button class="btn btn-sm" data-action="openImportWizard" data-account="SAVINGS" title="Import bank CSV file">📥 Import CSV</button>
           </div>
           <div class="table-container" style="border:none;">
             <table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Amount</th><th>Status</th></tr></thead>
@@ -1823,8 +2015,10 @@ class MoneyTrackerApp {
       <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
       <td></td>
       <td style="text-align:center;">
-        <button class="btn btn-sm" data-action="clearPendingItem" data-tx-id="${t.id}" style="padding: 2px 6px; font-size: 10px; margin-right: 4px; background:rgba(0,255,157,0.1); border-color:var(--accent-positive); color:var(--accent-positive);" title="Mark as Posted">✅</button>
-        <button class="btn btn-sm" data-action="hardDeletePending" data-tx-id="${t.id}" style="padding: 2px 6px; font-size: 10px; background:transparent; border:none; color:var(--text-muted);" title="Delete permanently">✕</button>
+        <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
+          <button class="btn btn-sm" data-action="clearPendingItem" data-tx-id="${t.id}" style="padding: 2px 8px; font-size: 11px; background:rgba(0,255,157,0.1); border-color:var(--accent-positive); color:var(--accent-positive);" title="Mark as Posted">✅</button>
+          <button class="btn btn-sm" data-action="hardDeletePending" data-tx-id="${t.id}" style="padding: 2px 8px; font-size: 11px; background:transparent; border:none; color:var(--accent-negative);" title="Delete permanently">✕</button>
+        </div>
       </td>
     </tr>`;
   }
@@ -2668,8 +2862,14 @@ if ((daysInMonth - 1) % step !== 0) {
           <div style="background:var(--bg-base); padding:0.7rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
             <div style="font-weight:700; font-size:0.9rem;">${this.escapeHtml(t.nickname || t.description)}</div>
             <div style="font-size:0.7rem; color:var(--text-dim); margin-bottom:0.35rem;">${this.escapeHtml(t.description)}</div>
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-              <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
+                <!-- NEW REPEAT BUTTON -->
+                ${t.status !== 'estimated' ? `
+                  <button class="btn btn-sm" data-action="makeTransactionRecurring" data-tx-id="${t.id}" style="padding: 0 6px; height: 22px; font-size: 11px; background: rgba(0,229,255,0.1); border-color: var(--accent-primary); color: var(--accent-primary);" title="Make this a recurring bill">🔁</button>
+                ` : ''}
+              </div>
               <span class="badge badge-posted">${this.escapeHtml(t.category || '—')}</span>
             </div>
           </div>`).join('')}
@@ -2706,6 +2906,34 @@ if ((daysInMonth - 1) % step !== 0) {
         renderGroup('Other', other, 'var(--text-muted)')}
   `;
     drawer.classList.add('active');
+  }
+
+  makeTransactionRecurring(btn) {
+    const txId = btn.dataset.txId;
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
+
+    // Preserve category
+    let cat = tx.category;
+    if (!cat) {
+      cat = tx.amount >= 0 ? 'Income' : 'Miscellaneous';
+    }
+
+    this.closeDrawer();
+
+    this._showRecurringForm({
+      groupId: null,
+      description: tx.description,
+      account: tx.account || 'CHECKING',
+      category: cat,
+      amount: tx.amount, // Use the exact amount
+      startDate: tx.date,
+      interval: 1,
+      freq: 'months',
+      endType: 'forever',
+      count: 12,
+      reminderDays: 3
+    }, true);
   }
 
   closeDrawer() {
@@ -4274,14 +4502,14 @@ onSpendingCustomInput(val) {
   }
 
   closeModal(forceOrEl = false) {
-  let force = forceOrEl === true;
-  
-  // If the Sync modal is open, auto-fill before closing
-  if (!force && document.getElementById('reconcileGapDisplay')) {
-    this.saveReconcileItems(); 
-    return;
-  }
-  document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
+    let force = forceOrEl === true;
+    
+    // Only auto-save if the Sync modal is ACTUALLY open
+    if (!force && document.getElementById('reconcileTargetBalance')) {
+      this.saveReconcileItems(); 
+      return;
+    }
+    document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
   }
 
   /* ============================================================
@@ -4655,6 +4883,46 @@ onSpendingCustomInput(val) {
       </div>`);
   }
 
+    savePendingItem() {
+    const accEl = document.getElementById('pendingAccount');
+    const dateEl = document.getElementById('pendingDate');
+    const descEl = document.getElementById('pendingDesc');
+    const amtEl = document.getElementById('pendingAmount');
+    
+    // Safety check
+    if (!accEl || !dateEl || !descEl || !amtEl) {
+      this.closeModal();
+      return;
+    }
+
+    const acc = accEl.value;
+    const date = dateEl.value;
+    const desc = descEl.value.trim();
+    const amt = parseFloat(amtEl.value);
+
+    // If they left fields blank, just close
+    if (!desc || isNaN(amt)) { 
+      this.closeModal();
+      return; 
+    }
+
+    // Add the new pending item to state
+    this.state.pendingItems.push({
+      id: `p_${Date.now()}`, 
+      account: acc, 
+      date: date, 
+      description: desc,
+      nickname: this.getMatchingNickname(desc), 
+      amount: amt, 
+      status: 'pending'
+    });
+    
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent(this.currentTab);
+    this.showToast('Pending item added');
+  }
+
     startBankSync() {
     const ledger = this.getBalances('CHECKING').ledger;
     
@@ -4805,60 +5073,6 @@ onSpendingCustomInput(val) {
     
     row.querySelector('.reconcile-item-desc').focus();
     this.updateReconcileGap();
-  }
-
-  saveReconcileItems() {
-    // Ensure modal is open
-    if (!document.getElementById('reconcileMathDisplay')) return;
-
-    const targetInput = document.getElementById('reconcileTargetBalance');
-    if (!targetInput) return;
-    
-    const target = parseFloat(targetInput.value) || 0;
-    const ledger = this.getBalances('CHECKING').ledger;
-    const totalGap = target - ledger;
-
-    let addedTotal = 0;
-    let addedCount = 0;
-
-    document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
-      const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
-      const amt = parseFloat(row.querySelector('.reconcile-item-amount').value) || 0;
-      
-      if (amt !== 0) {
-        this.state.pendingItems.push({
-          id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          account: 'CHECKING',
-          date: new Date().toISOString().split('T')[0],
-          description: desc,
-          amount: amt,
-          status: 'pending'
-        });
-        addedTotal += amt;
-        addedCount++;
-      }
-    });
-
-    const remainingGap = totalGap - addedTotal;
-
-    if (Math.abs(remainingGap) > 0.01) {
-      // User didn't fully cover the gap, auto-fill the rest
-      this.state.pendingItems.push({
-        id: `p_${Date.now()}_adj`,
-        account: 'CHECKING',
-        date: new Date().toISOString().split('T')[0],
-        description: 'Pending Adjustment',
-        amount: remainingGap,
-        status: 'pending'
-      });
-      this.showToast('Auto-adjusted remaining gap.');
-    } else if (addedCount > 0) {
-      this.showToast('Pending items synced perfectly!');
-    }
-
-    this.saveState();
-    this.closeModal(true); // Force close so it doesn't loop
-    this.renderTabContent('checking');
   }
 
   saveReconcileItems() {
@@ -5639,12 +5853,13 @@ openEditRecurringModal(btn) {
     interval: cfg.interval || 1,
     freq: cfg.freq || 'months',
     endType,
-    count: endVal || 12
+    count: endVal || 12,
+    reminderDays: cfg.reminderDays || 0
   });
 }
 
-_showRecurringForm(existing) {
-  const isEdit = !!existing;
+_showRecurringForm(existing, isNewPrefill = false) {
+  const isEdit = !!existing && !isNewPrefill;
   const v = existing || {
     groupId: null,
     description: '',
@@ -5655,12 +5870,15 @@ _showRecurringForm(existing) {
     interval: 1,
     freq: 'months',
     endType: 'count',
-    count: 12
+    count: 12,
+    reminderDays: 3
   };
 
   const catOpts = CATEGORIES.map(c =>
     `<option value="${c}" ${v.category === c ? 'selected' : ''}>${c}</option>`
   ).join('');
+
+  const hasReminder = v.reminderDays > 0;
 
   this.openModal(`
     <div class="modal-overlay active">
@@ -5677,7 +5895,16 @@ _showRecurringForm(existing) {
             <option value="SAVINGS" ${v.account === 'SAVINGS' ? 'selected' : ''}>Savings</option>
           </select></div>
           <div><label class="stat-label">Category</label><select id="recCategory">${catOpts}</select></div>
-          <div><label class="stat-label">Amount ($)</label><input type="number" step="0.01" id="recAmount" value="${v.amount !== '' ? v.amount : ''}"></div>
+          
+          <!-- NEW AMOUNT FIELD WITH GUESS BUTTON -->
+          <div>
+            <label class="stat-label">Amount ($)</label>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <input type="number" step="0.01" id="recAmount" value="${v.amount !== '' ? Number(v.amount).toFixed(2) : ''}" style="flex:1;">
+              <button class="btn btn-sm" onclick="app.guessRecurringAmount()" style="border-color:var(--accent-primary); color:var(--accent-primary);" title="Calculate average from past transactions">🔮 Guess</button>
+            </div>
+          </div>
+
           <div><label class="stat-label">Start Date</label><input type="date" id="recStart" value="${v.startDate}"></div>
           <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
             <div><label class="stat-label">Interval</label><input type="number" id="recInterval" value="${v.interval}" min="1"></div>
@@ -5688,7 +5915,20 @@ _showRecurringForm(existing) {
               <option value="years" ${v.freq === 'years' ? 'selected' : ''}>Years</option>
             </select></div>
           </div>
-          <div>
+
+          <!-- NEW REMINDER TOGGLE -->
+          <div style="background:var(--bg-base); padding:0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-top:0.5rem;">
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <label class="stat-label" style="margin:0; cursor:pointer;" for="recReminderToggle">Enable Reminder</label>
+              <input type="checkbox" id="recReminderToggle" ${hasReminder ? 'checked' : ''} onchange="app.toggleReminderInput()" style="width:20px; height:20px; cursor:pointer;">
+            </div>
+            <div id="recReminderDaysWrapper" style="display:${hasReminder ? 'block' : 'none'}; margin-top:0.5rem;">
+              <label class="stat-label">Remind me how many days before?</label>
+              <input type="number" id="recReminderDays" value="${v.reminderDays || 3}" min="1" max="30">
+            </div>
+          </div>
+
+          <div style="margin-top:0.5rem;">
             <label class="stat-label">End</label>
             <select id="recEndType" onchange="app.onRecurringEndTypeChange()">
               <option value="count" ${v.endType === 'count' ? 'selected' : ''}>After N occurrences</option>
@@ -5710,6 +5950,44 @@ _showRecurringForm(existing) {
       </div>
     </div>`);
 }
+
+  toggleReminderInput() {
+    const isChecked = document.getElementById('recReminderToggle')?.checked;
+    const wrapper = document.getElementById('recReminderDaysWrapper');
+    if (wrapper) wrapper.style.display = isChecked ? 'block' : 'none';
+  }
+
+  guessRecurringAmount() {
+    const desc = document.getElementById('recDesc')?.value.trim();
+    if (!desc) {
+      this.showToast('Enter a description first so the app knows what to guess.');
+      return;
+    }
+
+    // Look at the last 3 posted transactions with this description
+    const pastTxs = this.state.transactions
+      .filter(t => t.status !== 'estimated' && !t.deletedAt && t.description.toLowerCase().includes(desc.toLowerCase()))
+      .sort((a, b) => new Date(b.date) - new Date(a.date))
+      .slice(0, 3);
+
+    if (pastTxs.length === 0) {
+      this.showToast('No past transactions found with this name.');
+      return;
+    }
+
+    const sum = pastTxs.reduce((acc, t) => acc + Math.abs(parseFloat(t.amount) || 0), 0);
+    const avg = sum / pastTxs.length;
+    
+    // Check if the original category implies income
+    const cat = document.getElementById('recCategory')?.value;
+    const isIncome = cat === 'Income';
+    const finalAmt = isIncome ? avg : -avg;
+
+    const amtEl = document.getElementById('recAmount');
+    if (amtEl) amtEl.value = finalAmt.toFixed(2);
+    
+    this.showToast(`Guessed average from ${pastTxs.length} past transactions.`);
+  }
 
 onRecurringEndTypeChange() {
   const type = document.getElementById('recEndType')?.value;
@@ -5782,6 +6060,8 @@ saveRecurringForm() {
   const interval = Math.max(1, parseInt(document.getElementById('recInterval').value) || 1);
   const freq = document.getElementById('recFreq').value;
   const endType = document.getElementById('recEndType')?.value || 'count';
+  const hasReminder = document.getElementById('recReminderToggle')?.checked;
+  const reminderDays = hasReminder ? (parseInt(document.getElementById('recReminderDays')?.value) || 3) : 0;
   const rawCount = parseInt(document.getElementById('recCount')?.value) || 12;
   const count = Math.min(rawCount, 200);
 
@@ -5794,8 +6074,8 @@ saveRecurringForm() {
   const finalGroupId = groupId || `rec_${Date.now()}`;
 
   const ruleConfig = endType === 'forever'
-    ? { interval, freq, endType: 'forever', maxMonths: 32 }
-    : { interval, freq, endType: 'count', endVal: count, count, maxMonths: 32 };
+    ? { interval, freq, endType: 'forever', maxMonths: 32, reminderDays }
+    : { interval, freq, endType: 'count', endVal: count, count, maxMonths: 32, reminderDays };
 
   if (isEdit) {
     this.state.transactions = this.state.transactions.filter(
