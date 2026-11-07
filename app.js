@@ -1074,33 +1074,78 @@ class MoneyTrackerApp {
 
   // 2. Check for upcoming reminders on load
   checkRecurringReminders() {
-    const today = new Date();
-    today.setHours(0,0,0,0);
+  const today = new Date();
+  today.setHours(0,0,0,0);
+  
+  const upcoming = this.state.transactions.filter(t => {
+    if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed || t.isTemplate) return false;
     
-    // Find estimated transactions that haven't been reminded yet
-    const upcoming = this.state.transactions.filter(t => {
-      if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed || t.isTemplate) return false;
-      
-      const txDate = new Date(t.date + 'T00:00:00');
-      const diffTime = txDate - today;
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      const cfg = t.ruleConfig || {};
-      const reminderDays = cfg.reminderDays !== undefined ? cfg.reminderDays : 3;
-      
-      // If it's due in exactly `reminderDays` or less (but not in the past)
-      return diffDays >= 0 && diffDays <= reminderDays;
-    });
+    const txDate = new Date(t.date + 'T00:00:00');
+    const diffTime = txDate - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    const cfg = t.ruleConfig || {};
+    const reminderDays = cfg.reminderDays !== undefined ? cfg.reminderDays : 3;
+    
+    return diffDays >= 0 && diffDays <= reminderDays;
+  });
 
-    if (upcoming.length > 0) {
-      // Sort by soonest due date
-      upcoming.sort((a,b) => new Date(a.date) - new Date(b.date));
-      this.openRecurringReminderModal(upcoming[0]);
-    }
+  const bell = document.getElementById('notificationBellBtn');
+  const badge = document.getElementById('notificationBadge');
+
+  if (upcoming.length > 0) {
+    if (bell) bell.style.display = 'inline-flex';
+    if (badge) badge.innerText = upcoming.length;
+  } else {
+    if (bell) bell.style.display = 'none';
+  }
+  
+  return upcoming;
+  }
+
+  openReminderListModal() {
+  const upcoming = this.checkRecurringReminders();
+
+  if (upcoming.length === 0) {
+    this.showToast('No upcoming reminders.');
+    return;
+  }
+
+  upcoming.sort((a,b) => new Date(a.date) - new Date(b.date));
+
+  const rows = upcoming.map(tx => `
+    <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.75rem 0.9rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
+      <div style="min-width:0; flex:1;">
+        <div style="font-weight:600; font-size:0.9rem;">${this.escapeHtml(tx.description)}</div>
+        <div style="font-size:0.75rem; color:var(--text-dim);">Due: ${tx.date}</div>
+      </div>
+      <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+        <span class="mono" style="font-size:0.9rem; font-weight:700; color:var(--accent-negative);">$${Math.abs(tx.amount).toFixed(2)}</span>
+        <button class="btn btn-sm btn-primary" onclick="app.closeModal(); app.openRecurringReminderModal('${tx.id}')">Review</button>
+      </div>
+    </div>
+  `).join('');
+
+  this.openModal(`
+    <div class="modal-overlay active">
+      <div class="modal" style="max-width:500px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+          <h2 style="font-size:1.2rem; font-weight:700;">🔔 Upcoming Reminders</h2>
+          <button class="btn btn-sm" data-action="closeModal">Close</button>
+        </div>
+        <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1rem;">
+          These bills are due soon. Click Review to update the amount or dismiss.
+        </div>
+        ${rows}
+      </div>
+    </div>
+  `);
   }
 
   // 3. The Reminder Modal UI
   openRecurringReminderModal(tx) {
+    const tx = typeof txOrId === 'string' ? this.state.transactions.find(t => t.id === txOrId) : txOrId;
+  if (!tx) return;
     const guessed = this.guessNextAmount(tx);
     const currentAmount = Math.abs(parseFloat(tx.amount) || 0).toFixed(2);
     const guessStr = guessed ? Math.abs(guessed).toFixed(2) : null;
@@ -1186,6 +1231,7 @@ class MoneyTrackerApp {
   this.saveState();
   this.closeModal();
   this.renderTabContent(this.currentTab);
+  this.checkRecurringReminders();
   
   // Check if there are more reminders queued up
   setTimeout(() => this.checkRecurringReminders(), 500);
@@ -1198,6 +1244,7 @@ class MoneyTrackerApp {
       this.saveState();
     }
     this.closeModal();
+    this.checkRecurringReminders();
     
     // Check if there are more reminders queued up
     setTimeout(() => this.checkRecurringReminders(), 500);
@@ -1239,7 +1286,7 @@ class MoneyTrackerApp {
     this.bindGlobalEvents();
     this.checkStorageHealth();
     setTimeout(() => this._flushState(), 100);
-    setTimeout(() => this.checkRecurringReminders(), 1500);
+    setTimeout(() => this.checkRecurringReminders(), 500);
   }
 
   bindGlobalEvents() {
