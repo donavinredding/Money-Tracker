@@ -1079,7 +1079,7 @@ class MoneyTrackerApp {
     
     // Find estimated transactions that haven't been reminded yet
     const upcoming = this.state.transactions.filter(t => {
-      if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed) return false;
+      if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed || t.isTemplate) return false;
       
       const txDate = new Date(t.date + 'T00:00:00');
       const diffTime = txDate - today;
@@ -1140,43 +1140,56 @@ class MoneyTrackerApp {
   }
 
     handleReminderAction(txId, mode) {
-    const newAmt = parseFloat(document.getElementById('reminderNewAmount').value);
-    if (isNaN(newAmt)) return;
+  const newAmt = parseFloat(document.getElementById('reminderNewAmount').value);
+  if (isNaN(newAmt)) return;
 
-    // The `txId` passed from the modal is for the specific date instance
-    const tx = this.state.transactions.find(t => t.id === txId);
-    if (!tx) return;
+  const tx = this.state.transactions.find(t => t.id === txId);
+  if (!tx) return;
 
-    if (mode === 'once') {
-      // Edit just this single instance
+  if (mode === 'once') {
+    // Edit just this single instance
+    tx.amount = newAmt;
+    tx.reminderDismissed = true; 
+    this.showToast(`Updated this month's ${tx.description}`);
+  } else if (mode === 'future') {
+    // Find the master template for this group and update it
+    const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
+    
+    if (template) {
+      const dismissedDate = tx.date; // <-- Save the date before we delete it
+      template.amount = newAmt;
+      
+      // Remove all future instances for this group
+      this.state.transactions = this.state.transactions.filter(t => 
+        !(t.groupId === tx.groupId && t.status === 'estimated')
+      );
+      
+      // Re-expand from the updated template
+      this.expandRecurringTemplates();
+
+      // Find the newly generated instance for this same date and dismiss it
+      const newTx = this.state.transactions.find(t => 
+        t.groupId === tx.groupId && t.date === dismissedDate && t.status === 'estimated'
+      );
+      if (newTx) {
+        newTx.reminderDismissed = true; 
+      }
+      
+      this.showToast(`Updated ${tx.description} for all future months`);
+    } else {
+      // Fallback if template isn't found
       tx.amount = newAmt;
       tx.reminderDismissed = true; 
-      this.showToast(`Updated this month's ${tx.description}`);
-    } else if (mode === 'future') {
-      // Find the master template for this group and update it
-      const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
-      if (template) {
-        template.amount = newAmt;
-        // Remove all future instances for this group
-        this.state.transactions = this.state.transactions.filter(t => 
-          !(t.groupId === tx.groupId && t.status === 'estimated')
-        );
-        // Re-expand from the updated template
-        this.expandRecurringTemplates();
-        this.showToast(`Updated ${tx.description} for all future months`);
-      } else {
-        // Fallback if template isn't found
-        tx.amount = newAmt;
-      }
     }
-
-    this.saveState();
-    this.closeModal();
-    this.renderTabContent(this.currentTab);
-    
-    // Check if there are more reminders queued up
-    setTimeout(() => this.checkRecurringReminders(), 500);
   }
+
+  this.saveState();
+  this.closeModal();
+  this.renderTabContent(this.currentTab);
+  
+  // Check if there are more reminders queued up
+  setTimeout(() => this.checkRecurringReminders(), 500);
+    }
 
   dismissReminder(txId) {
     const tx = this.state.transactions.find(t => t.id === txId);
