@@ -1145,7 +1145,7 @@ class MoneyTrackerApp {
   // 3. The Reminder Modal UI
   openRecurringReminderModal(tx) {
     const tx = typeof txOrId === 'string' ? this.state.transactions.find(t => t.id === txOrId) : txOrId;
-  if (!tx) return;
+    if (!tx) return;
     const guessed = this.guessNextAmount(tx);
     const currentAmount = Math.abs(parseFloat(tx.amount) || 0).toFixed(2);
     const guessStr = guessed ? Math.abs(guessed).toFixed(2) : null;
