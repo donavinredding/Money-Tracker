@@ -968,15 +968,30 @@ class MoneyTrackerApp {
 
         const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
         
-        // --- NEW: CHECK IF THIS ALREADY HAPPENED ---
-        const alreadyPosted = nonTemplates.some(t =>
-          t.account === tmpl.account &&
-          t.date === dateStr &&
-          t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase()
-        );
-
-        if (!alreadyPosted) {
-          // Only add the estimated transaction if it hasn't already been posted
+        // --- SMART CHECK: HAS THIS BEEN PAID OR SKIPPED? ---
+        let alreadyPosted = false;
+        
+        if (freq === 'months' || freq === 'years') {
+          // For monthly/yearly bills, check if we already paid it this month
+          const targetMonth = dateStr.substring(0, 7);
+          alreadyPosted = nonTemplates.some(t =>
+            t.account === tmpl.account &&
+            t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase() &&
+            t.date.startsWith(targetMonth)
+          );
+        } else {
+          // For weekly/daily bills, only skip if it's the exact same day
+          alreadyPosted = nonTemplates.some(t =>
+            t.account === tmpl.account &&
+            t.date === dateStr &&
+            t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase()
+          );
+        }
+        
+        // Check if we manually marked this specific occurrence as paid
+        const isSkipped = cfg.skippedDates && cfg.skippedDates.includes(dateStr);
+        
+        if (!alreadyPosted && !isSkipped) {
           out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
         }
 
@@ -1436,9 +1451,17 @@ openRecurringReminderModal(txOrId) {
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
           <!-- UPCOMING BILLS CARD -->
           <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-              <h3 style="font-size:1rem; font-weight:600;">Upcoming Bills (Next 7 Days)</h3>
-              <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">View Calendar</button>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+              <h3 style="font-size:1rem; font-weight:600; margin:0;">Upcoming Bills</h3>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <select id="dashBillRange" onchange="app.updateDashBillRange(this.value)" style="width:auto; min-width:110px; padding:0.25rem 0.5rem; font-size:0.75rem; border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-main); border:1px solid var(--border-subtle);">
+                  <option value="7" ${this.upcomingBillsRange === 7 ? 'selected' : ''}>Next 1 Week</option>
+                  <option value="14" ${this.upcomingBillsRange === 14 ? 'selected' : ''}>Next 2 Weeks</option>
+                  <option value="21" ${this.upcomingBillsRange === 21 ? 'selected' : ''}>Next 3 Weeks</option>
+                  <option value="28" ${this.upcomingBillsRange === 28 ? 'selected' : ''}>Next 4 Weeks</option>
+                </select>
+                <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">Calendar</button>
+              </div>
             </div>
             <div id="dashUpcomingBills"></div>
           </div>
@@ -1531,28 +1554,31 @@ openRecurringReminderModal(txOrId) {
       </div>
     `;
 
-    // 2. Upcoming Bills (Next 7 Days)
+    // 2. Upcoming Bills
     const nextWeek = new Date(today);
-    nextWeek.setDate(today.getDate() + 7);
-
+    nextWeek.setDate(today.getDate() + this.upcomingBillsRange);
+    
     const bills = this.state.transactions.filter(t => {
       if (t.status !== 'estimated' || t.deletedAt || t.amount >= 0) return false;
       const txDate = new Date(t.date + 'T00:00:00');
       return txDate >= today && txDate <= nextWeek;
     }).sort((a,b) => new Date(a.date) - new Date(b.date));
-
+    
     const billsEl = document.getElementById('dashUpcomingBills');
     if (billsEl) {
       if (!bills.length) {
-        billsEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No bills due in the next 7 days. 🎉</div>';
+        billsEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No bills due in this period. 🎉</div>';
       } else {
         billsEl.innerHTML = bills.map(t => `
           <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
-            <div>
-              <div style="font-weight:600; font-size:0.85rem;">${this.escapeHtml(t.description)}</div>
+            <div style="min-width:0; flex:1;">
+              <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.description)}</div>
               <div style="font-size:0.7rem; color:var(--text-dim);">${t.date}</div>
             </div>
-            <span class="mono" style="font-weight:700; color:var(--accent-negative);">-$${Math.abs(t.amount).toFixed(2)}</span>
+            <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+              <span class="mono" style="font-weight:700; color:var(--accent-negative);">-$${Math.abs(t.amount).toFixed(2)}</span>
+              <button class="btn btn-sm" onclick="app.markBillAsPaid('${t.id}')" style="padding: 2px 6px; font-size: 11px; background: rgba(0,255,157,0.1); border-color: var(--accent-positive); color: var(--accent-positive);" title="Mark as Paid">✅</button>
+            </div>
           </div>
         `).join('');
       }
@@ -1581,6 +1607,45 @@ openRecurringReminderModal(txOrId) {
       }
     }
   }
+
+  updateDashBillRange(val) {
+  this.upcomingBillsRange = parseInt(val);
+  this.renderDashboardView();
+}
+
+markBillAsPaid(txId) {
+  const tx = this.state.transactions.find(t => t.id === txId);
+  if (!tx) return;
+
+  // Find the template for this recurring bill
+  const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
+  if (template) {
+    if (!template.ruleConfig) template.ruleConfig = {};
+    if (!template.ruleConfig.skippedDates) template.ruleConfig.skippedDates = [];
+    // Add this specific date to the "skipped" list
+    template.ruleConfig.skippedDates.push(tx.date);
+  }
+
+  // Create a real POSTED transaction for today
+  this.state.transactions.push({
+    id: `tx_${Date.now()}_paid`,
+    account: tx.account,
+    date: new Date().toISOString().split('T')[0],
+    description: tx.description,
+    nickname: tx.nickname,
+    category: tx.category,
+    flow: tx.flow,
+    amount: tx.amount,
+    status: 'POSTED'
+  });
+
+  this.expandRecurringTemplates();
+  this.recalculateBalances();
+  this.saveState();
+  this.renderTabContent(this.currentTab);
+  this.checkRecurringReminders(); // Update the bell badge
+  this.showToast(`✅ Marked ${tx.description} as paid`);
+}
 
   tplChecking() {
   const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
@@ -2641,13 +2706,22 @@ openRecurringReminderModal(txOrId) {
         totalExpense += dExpense;
         totalTransfer += dTransfer;
 
+        const todayStr = new Date().toISOString().split('T')[0];
+        const isToday = dateStr === todayStr;
+        
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
+        if (isToday) {
+          cell.style.border = '2px solid var(--accent-primary)';
+          cell.style.boxShadow = '0 0 12px rgba(0, 229, 255, 0.2)';
+          cell.style.background = 'rgba(0,229,255,0.03)';
+        }
         cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-
+        
         const num = document.createElement('div');
         num.style.fontWeight = '700';
         num.style.fontSize = '0.85rem';
+        if (isToday) num.style.color = 'var(--accent-primary)';
         num.innerText = d;
         cell.appendChild(num);
 
@@ -2926,10 +3000,14 @@ if ((daysInMonth - 1) % step !== 0) {
                         <div style="display:flex; justify-content:space-between; align-items:center;">
               <div style="display:flex; gap:8px; align-items:center;">
                 <span class="mono" style="font-weight:700; color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</span>
-                <!-- NEW REPEAT BUTTON -->
+                
                 ${t.status !== 'estimated' ? `
+                  <!-- REPEAT BUTTON FOR POSTED ITEMS -->
                   <button class="btn btn-sm" data-action="makeTransactionRecurring" data-tx-id="${t.id}" style="padding: 0 6px; height: 22px; font-size: 11px; background: rgba(0,229,255,0.1); border-color: var(--accent-primary); color: var(--accent-primary);" title="Make this a recurring bill">🔁</button>
-                ` : ''}
+                ` : `
+                  <!-- MARK PAID BUTTON FOR ESTIMATED ITEMS -->
+                  <button class="btn btn-sm" onclick="app.markBillAsPaid('${t.id}')" style="padding: 0 6px; height: 22px; font-size: 11px; background: rgba(0,255,157,0.1); border-color: var(--accent-positive); color: var(--accent-positive);" title="Mark as Paid">✅</button>
+                `}
               </div>
               <span class="badge badge-posted">${this.escapeHtml(t.category || '—')}</span>
             </div>
