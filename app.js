@@ -2170,40 +2170,53 @@ markBillAsPaid(txId) {
   }
 
     renderSavingsView() {
-    const bal = this.getBalances('SAVINGS');
-    const stats = document.getElementById('savingsStats');
-    if (stats) stats.innerHTML = `
-      <div class="stat-card">
-        <div class="stat-label" style="display:flex; justify-content:space-between; align-items:center;">
-          <span>Savings Account Ledger</span>
-          <button class="btn btn-sm" data-action="openEditBalanceModal" data-account="SAVINGS" style="padding: 0 6px; height: 22px; font-size: 12px; opacity: 0.7;" title="Set Starting Balance">⚙️</button>
+      const bal = this.getBalances('SAVINGS');
+      const totalSavings = bal.available + bal.vaults; // This combines your ledger and vaults
+    
+      const stats = document.getElementById('savingsStats');
+      if (stats) stats.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label" style="display:flex; justify-content:space-between; align-items:center;">
+            <span>Total Savings Balance</span>
+            <button class="btn btn-sm" data-action="openEditBalanceModal" data-account="SAVINGS" style="padding: 0 6px; height: 22px; font-size: 12px; opacity: 0.7;" title="Set Starting Balance">⚙️</button>
+          </div>
+          <div class="stat-value mono" style="color:var(--accent-primary)">$${totalSavings.toFixed(2)}</div>
+          <div class="stat-subtext">Ledger + Vaults Combined</div>
         </div>
-        <div class="stat-value mono">$${bal.ledger.toFixed(2)}</div>
-      </div>
-      <div class="stat-card"><div class="stat-label">Total Vault Earmarks</div>
-        <div class="stat-value mono" style="color:var(--accent-secondary)">$${bal.vaults.toFixed(2)}</div></div>`;
-
-    const vc = document.getElementById('vaultList');
-    if (vc) {
-      if ((this.state.vaults || []).length === 0) {
-        vc.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No vaults yet. Click "+ New Vault".</div>';
-      } else {
-        vc.innerHTML = this.state.vaults.map(v => `
-          <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0; border-bottom:1px solid var(--border-subtle); gap:0.5rem;">
-            <div style="min-width:0;">
-              <div style="font-weight:600;">${this.escapeHtml(v.name)}</div>
-              <div style="font-size:0.75rem; color:var(--text-dim)">Earmarked Sub-balance</div>
-            </div>
-            <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
-              <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
-              <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}" title="Transfer money into this vault">💸</button>
-              <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}" title="Edit vault name or balance">⚙️</button>
-            </div>
-          </div>`).join('');
+        
+        <div class="stat-card">
+          <div class="stat-label">Unassigned Cash</div>
+          <div class="stat-value mono">$${bal.ledger.toFixed(2)}</div>
+          <div class="stat-subtext">Available to move to a vault</div>
+        </div>
+    
+        <div class="stat-card">
+          <div class="stat-label">Total Vault Earmarks</div>
+          <div class="stat-value mono" style="color:var(--accent-secondary)">$${bal.vaults.toFixed(2)}</div>
+          <div class="stat-subtext">Earmarked funds</div>
+        </div>`;
+    
+      const vc = document.getElementById('vaultList');
+      if (vc) {
+        if ((this.state.vaults || []).length === 0) {
+          vc.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No vaults yet. Click "+ New Vault".</div>';
+        } else {
+          vc.innerHTML = this.state.vaults.map(v => `
+            <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0; border-bottom:1px solid var(--border-subtle); gap:0.5rem;">
+              <div style="min-width:0;">
+                <div style="font-weight:600;">${this.escapeHtml(v.name)}</div>
+                <div style="font-size:0.75rem; color:var(--text-dim)">Earmarked Sub-balance</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
+                <span class="mono" style="font-size:1rem; font-weight:700; background:var(--bg-base); padding:0.3rem 0.75rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); min-width:90px; text-align:right;">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
+                <button class="btn btn-sm" data-action="openVaultTransferModal" data-vault-id="${v.id}" title="Transfer money into this vault">💸</button>
+                <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}" title="Edit vault name or balance">⚙️</button>
+              </div>
+            </div>`).join('');
+        }
       }
-    }
-    this.renderSavingsTable();
-  }
+      this.renderSavingsTable();
+        }
 
   renderSavingsTable() {
     const tbody = document.getElementById('savingsTableBody');
