@@ -132,6 +132,7 @@ class MoneyTrackerApp {
     this.showLockedOnly = false;
     this.spendingRange = 'last_month';
     this.spendingCustom = 30;
+    this.upcomingBillsRange = 7;
   }
 
   /* ============ STORAGE HEALTH / TRIM ============ */
