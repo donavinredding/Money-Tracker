@@ -1517,43 +1517,45 @@ openRecurringReminderModal(txOrId) {
     };
 
     const proj7 = getProjectedBalance(7);
-    const proj14 = getProjectedBalance(14);
-    const proj30 = getProjectedBalance(30);
-    // ---------------------------------------
+const proj14 = getProjectedBalance(14);
+const proj21 = getProjectedBalance(21); // <-- NEW: Added 21 days
+const proj30 = getProjectedBalance(30);
+// ---------------------------------------
 
-    const stats = document.getElementById('dashboardStats');
-    if (stats) stats.innerHTML = `
-      <div class="stat-card">
-        <div class="stat-label">Total Net Worth</div>
-        <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
-        <div class="stat-subtext">Checking + Savings + Vaults</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Projected Monthly Surplus</div>
-        <div class="stat-value mono" style="color:${netSurplus >= 0 ? 'var(--accent-primary)' : 'var(--accent-negative)'}">$${netSurplus.toFixed(2)}</div>
-        <div class="stat-subtext">Based on Forecaster Baseline</div>
-      </div>
-      
-      <!-- NEW CASH FLOW CARD -->
-      <div class="stat-card" style="border-color: rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, var(--bg-surface) 100%);">
-        <div class="stat-label" style="margin-bottom:0.5rem;">Projected Cash Flow</div>
-        
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
-           <span style="font-size:0.8rem; color:var(--text-muted);">Next 7 Days</span>
-           <span class="mono" style="font-weight:700; color:${proj7 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj7.toFixed(2)}</span>
-        </div>
-        
-        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
-           <span style="font-size:0.8rem; color:var(--text-muted);">Next 14 Days</span>
-           <span class="mono" style="font-weight:700; color:${proj14 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj14.toFixed(2)}</span>
-        </div>
-        
-        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.25rem; border-top:1px dashed var(--border-subtle);">
-           <span style="font-size:0.8rem; color:var(--text-muted);">Next 30 Days</span>
-           <span class="mono" style="font-weight:700; color:${proj30 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj30.toFixed(2)}</span>
-        </div>
-      </div>
-    `;
+const stats = document.getElementById('dashboardStats');
+if (stats) stats.innerHTML = `
+  <div class="stat-card">
+    <div class="stat-label">Total Net Worth</div>
+    <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
+    <div class="stat-subtext">Checking + Savings + Vaults</div>
+  </div>
+  
+  <!-- CASH FLOW CARD (Surplus card removed) -->
+  <div class="stat-card" style="border-color: rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, var(--bg-surface) 100%);">
+    <div class="stat-label" style="margin-bottom:0.5rem;">Projected Cash Flow</div>
+    
+    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+       <span style="font-size:0.8rem; color:var(--text-muted);">Next 7 Days</span>
+       <span class="mono" style="font-weight:700; color:${proj7 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj7.toFixed(2)}</span>
+    </div>
+    
+    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+       <span style="font-size:0.8rem; color:var(--text-muted);">Next 14 Days</span>
+       <span class="mono" style="font-weight:700; color:${proj14 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj14.toFixed(2)}</span>
+    </div>
+
+    <!-- NEW 21 DAYS ROW -->
+    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+       <span style="font-size:0.8rem; color:var(--text-muted);">Next 21 Days</span>
+       <span class="mono" style="font-weight:700; color:${proj21 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj21.toFixed(2)}</span>
+    </div>
+    
+    <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.25rem; border-top:1px dashed var(--border-subtle);">
+       <span style="font-size:0.8rem; color:var(--text-muted);">Next 30 Days</span>
+       <span class="mono" style="font-weight:700; color:${proj30 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj30.toFixed(2)}</span>
+    </div>
+  </div>
+`;
 
     // 2. Upcoming Bills
     const nextWeek = new Date(today);
