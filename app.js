@@ -1459,10 +1459,11 @@ class MoneyTrackerApp {
           </div>
         </div>
         
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
+        <!-- Changed to Flexbox for perfect stretching -->
+        <div style="display:flex; flex-wrap:wrap; gap:1.5rem;">
           
           <!-- UPCOMING BILLS CARD -->
-          <div class="card" style="display:flex; flex-direction:column;">
+          <div class="card" style="flex:1; min-width:320px; display:flex; flex-direction:column;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600; margin:0;">Upcoming Bills</h3>
               <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">Calendar</button>
@@ -1471,7 +1472,7 @@ class MoneyTrackerApp {
           </div>
 
           <!-- RECENT ACTIVITY CARD -->
-          <div class="card" style="display:flex; flex-direction:column;">
+          <div class="card" style="flex:1; min-width:320px; display:flex; flex-direction:column;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">Recent Activity</h3>
               <button class="btn btn-sm" data-action="switchTab" data-tab="checking">View All</button>
@@ -1480,7 +1481,7 @@ class MoneyTrackerApp {
           </div>
 
           <!-- TOP VAULTS CARD -->
-          <div class="card" style="display:flex; flex-direction:column;">
+          <div class="card" style="flex:1; min-width:320px; display:flex; flex-direction:column;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">Top Vaults</h3>
               <button class="btn btn-sm" data-action="switchTab" data-tab="savings">Savings</button>
@@ -1489,7 +1490,7 @@ class MoneyTrackerApp {
           </div>
 
           <!-- SPENDING DONUT -->
-          <div class="card" style="grid-column: 1 / -1;">
+          <div class="card" style="flex-basis:100%; width:100%;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
               <h3 style="font-size:1rem; font-weight:600;">Spending by Category</h3>
               <select id="dashSpendingRange" onchange="app.onDashSpendingChange(this.value)"
@@ -1505,6 +1506,7 @@ class MoneyTrackerApp {
               <div id="dashCategoryLegend" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:0.4rem;"></div>
             </div>
           </div>
+
         </div>
       </section>`;
   }
