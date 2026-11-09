@@ -886,3 +886,43 @@ select option {
 .modal::-webkit-scrollbar-thumb {
   border-width: 1px;
 }
+
+/* Chart Tooltips */
+.chart-tooltip {
+  position: fixed;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-glow);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-main);
+  pointer-events: none; /* Prevents tooltip from blocking mouse events */
+  z-index: 1000;
+  box-shadow: var(--shadow-card);
+  max-width: 260px;
+  display: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.chart-tooltip.active {
+  display: block;
+  opacity: 1;
+}
+
+.legend-item {
+  display: flex; 
+  align-items: center; 
+  gap: 0.4rem; 
+  font-size: 0.72rem; 
+  background: var(--bg-base); 
+  padding: 0.3rem 0.5rem; 
+  border-radius: 6px; 
+  border: 1px solid var(--border-subtle); 
+  transition: background 0.2s;
+  cursor: default;
+}
+
+.legend-item:hover {
+  background: var(--bg-hover);
+}

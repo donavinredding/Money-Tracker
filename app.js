@@ -23,7 +23,7 @@ const CATEGORY_COLORS = {
   "Transfers": { bg: "rgba(114, 9, 183, 0.15)", color: "#7209b7", border: "rgba(114, 9, 183, 0.4)", glow: "rgba(114, 9, 183, 0.25)" },
   "Fees and Interest": { bg: "rgba(255, 84, 0, 0.15)", color: "#ff5400", border: "rgba(255, 84, 0, 0.4)", glow: "rgba(255, 84, 0, 0.25)" },
   "Income": { bg: "rgba(0, 255, 136, 0.15)", color: "#00ff88", border: "rgba(0, 255, 136, 0.4)", glow: "rgba(0, 255, 136, 0.25)" },
-  "Miscellaneous": { bg: "rgba(138, 143, 158, 0.15)", color: "#8a8f9e", border: "rgba(138, 143, 158, 0.4)", glow: "rgba(138, 143, 158, 0.2)" },
+  "Miscellaneous": { bg: "rgba(163, 230, 53, 0.15)", color: "#a3e635", border: "rgba(163, 230, 53, 0.4)", glow: "rgba(163, 230, 53, 0.25)" },
   "Other": { bg: "rgba(255, 255, 255, 0.1)", color: "#f0f2f8", border: "rgba(255, 255, 255, 0.2)", glow: "rgba(255, 255, 255, 0.1)" }
 };
 
@@ -371,7 +371,7 @@ class MoneyTrackerApp {
 
   exportCurrentProfile() {
     this._flushState();
-    const blob = new Blob([JSON.stringify(this.state, null, 2)], { type: 'application/json' });
+    const blob = new Blob([JSON.stringify(this._getExportState(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -383,11 +383,11 @@ class MoneyTrackerApp {
     this.showToast(`Exported "${this.activeProfile}"`);
   }
 
-    async shareProfileFile() {
+  async shareProfileFile() {
     try {
-      const dataStr = JSON.stringify(this.state);
+      const dataStr = JSON.stringify(this._getExportState());
       const fileName = `${this.activeProfile.replace(/[^a-z0-9]/gi, '_')}_Backup.json`;
-      
+
       // Create a File object
       const file = new File([dataStr], fileName, { type: 'application/json' });
 
@@ -490,12 +490,12 @@ class MoneyTrackerApp {
     this.showToast('Current profile data cleared');
   }
 
-    copyShareLink() {
+  copyShareLink() {
     try {
-      const stateStr = JSON.stringify(this.state);
+      const stateStr = JSON.stringify(this._getExportState());
       // Compress to Base64
       const encoded = btoa(unescape(encodeURIComponent(stateStr)));
-      
+
       // Safety check for browser URL limits (~2MB)
       if (encoded.length > 1500000) {
         this.showToast('⚠ Profile too large for a link. Please use Copy Data or Export File.');
@@ -515,7 +515,7 @@ class MoneyTrackerApp {
 
   copyRawData() {
     try {
-      const dataStr = JSON.stringify(this.state);
+      const dataStr = JSON.stringify(this._getExportState());
       navigator.clipboard.writeText(dataStr).then(() => {
         this.showToast('📋 Data copied! Paste it in an email or note.');
       });
@@ -535,12 +535,12 @@ class MoneyTrackerApp {
         const newName = `Pasted (${new Date().toLocaleDateString()})`;
         const profiles = this.loadProfiles();
         profiles[newName] = { state: parsed, savedAt: new Date().toISOString() };
-        
+
         this.saveProfiles(profiles);
         this.activeProfile = newName;
         this.state = parsed;
         localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', newName);
-        
+
         this.expandRecurringTemplates();
         this.recalculateBalances();
         this.applyCustomRules();
@@ -557,7 +557,7 @@ class MoneyTrackerApp {
     });
   }
 
-    openTransferModal() {
+  openTransferModal() {
     // Check if native sharing is supported (mostly on mobile)
     const canShare = navigator.canShare && navigator.canShare({ files: [new File([''], 'test.json', { type: 'application/json' })] });
 
@@ -642,6 +642,12 @@ class MoneyTrackerApp {
 
           <div style="margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--border-subtle);">
             <div class="stat-label" style="font-size:0.65rem; margin-bottom:0.5rem;">MANAGE PROFILES</div>
+            <div style="margin-top:1.25rem; padding:0.85rem 1rem; background:rgba(255,176,32,0.06); border:1px solid rgba(255,176,32,0.25); border-radius:var(--radius-sm); font-size:0.78rem; color:var(--text-muted); line-height:1.5;">
+              <div style="font-weight:600; color:var(--accent-pending); margin-bottom:0.35rem;">🔒 Security Notice</div>
+              Your data is stored unencrypted in this browser's localStorage.
+              <strong>Back up your profile</strong> via the Backups menu and keep it in a password manager.
+              Do not use this app on public / shared computers.
+            </div>
             <div style="display:flex; flex-direction:column; gap:0.5rem; max-height: 250px; overflow-y:auto; padding-right:4px;">
               ${profileNames.map(p => `
                 <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.75rem; border-radius:var(--radius-sm); border:1px solid ${p === this.activeProfile ? 'var(--accent-primary)' : 'var(--border-subtle)'};">
@@ -944,10 +950,17 @@ class MoneyTrackerApp {
     );
     if (!templates.length) return;
 
-    const nonTemplates = this.state.transactions.filter(
-      t => !(t.status === 'estimated' && t.isTemplate)
+    // Only keep non-estimated rows AND expanded instances of groups NOT in this pass.
+    const templateGroups = new Set(templates.map(t => t.groupId));
+    const posted = this.state.transactions.filter(
+      t => t.status !== 'estimated' && !t.deletedAt
     );
-    const out = [...nonTemplates];
+
+    const out = this.state.transactions.filter(t => {
+      if (t.status !== 'estimated') return true;      // posted rows: keep
+      if (t.isTemplate) return false;                 // templates: rebuild below
+      return !templateGroups.has(t.groupId);          // other groups' instances: keep
+    });
 
     templates.forEach(tmpl => {
       const cfg = tmpl.ruleConfig || { interval: 1, freq: 'months' };
@@ -963,35 +976,36 @@ class MoneyTrackerApp {
 
       let cur = new Date(startDate);
       let i = 0;
+      
       while (cur <= capDate && i < 200) {
         if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
         if (endType === 'count' && endVal && i >= endVal) break;
 
         const dateStr = `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}-${String(cur.getDate()).padStart(2, '0')}`;
-        
+
         // --- SMART CHECK: HAS THIS BEEN PAID OR SKIPPED? ---
         let alreadyPosted = false;
         
         if (freq === 'months' || freq === 'years') {
           // For monthly/yearly bills, check if we already paid it this month
           const targetMonth = dateStr.substring(0, 7);
-          alreadyPosted = nonTemplates.some(t =>
+          alreadyPosted = posted.some(t =>
             t.account === tmpl.account &&
             t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase() &&
             t.date.startsWith(targetMonth)
           );
         } else {
           // For weekly/daily bills, only skip if it's the exact same day
-          alreadyPosted = nonTemplates.some(t =>
+          alreadyPosted = posted.some(t =>
             t.account === tmpl.account &&
             t.date === dateStr &&
             t.description.trim().toUpperCase() === tmpl.description.trim().toUpperCase()
           );
         }
-        
+
         // Check if we manually marked this specific occurrence as paid
         const isSkipped = cfg.skippedDates && cfg.skippedDates.includes(dateStr);
-        
+
         if (!alreadyPosted && !isSkipped) {
           out.push({ ...tmpl, id: `${tmpl.groupId}_${i}`, date: dateStr, isTemplate: false });
         }
@@ -1027,6 +1041,10 @@ class MoneyTrackerApp {
   saveState() {
     if (this.saveTimeout) clearTimeout(this.saveTimeout);
     this.saveTimeout = setTimeout(() => this._flushState(), 1200);
+  }
+
+  _getExportState() {
+    return { ...this.state, transactions: this.collapseRecurringForStorage() };
   }
 
   _flushState() {
@@ -1069,7 +1087,7 @@ class MoneyTrackerApp {
     }
   }
 
-    // 1. Logic to guess the amount based on past history
+  // 1. Logic to guess the amount based on past history
   guessNextAmount(originalTx) {
     const description = originalTx.description;
     const isIncome = originalTx.amount >= 0;
@@ -1083,53 +1101,53 @@ class MoneyTrackerApp {
 
     const sum = pastTxs.reduce((acc, t) => acc + Math.abs(parseFloat(t.amount) || 0), 0);
     const avg = sum / pastTxs.length;
-    
+
     // Preserve the sign based on the original transaction
-    return isIncome ? avg : -avg; 
+    return isIncome ? avg : -avg;
   }
 
   // 2. Check for upcoming reminders on load
   checkRecurringReminders() {
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  
-  const upcoming = this.state.transactions.filter(t => {
-    if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed || t.isTemplate) return false;
-    
-    const txDate = new Date(t.date + 'T00:00:00');
-    const diffTime = txDate - today;
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    const cfg = t.ruleConfig || {};
-    const reminderDays = cfg.reminderDays !== undefined ? cfg.reminderDays : 3;
-    
-    return diffDays >= 0 && diffDays <= reminderDays;
-  });
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-  const bell = document.getElementById('notificationBellBtn');
-  const badge = document.getElementById('notificationBadge');
+    const upcoming = this.state.transactions.filter(t => {
+      if (t.status !== 'estimated' || t.deletedAt || t.reminderDismissed || t.isTemplate) return false;
 
-  if (upcoming.length > 0) {
-    if (bell) bell.style.display = 'inline-flex';
-    if (badge) badge.innerText = upcoming.length;
-  } else {
-    if (bell) bell.style.display = 'none';
-  }
-  
-  return upcoming;
+      const txDate = new Date(t.date + 'T00:00:00');
+      const diffTime = txDate - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+      const cfg = t.ruleConfig || {};
+      const reminderDays = cfg.reminderDays !== undefined ? cfg.reminderDays : 3;
+      if (reminderDays <= 0) return false;
+      return diffDays >= 0 && diffDays <= reminderDays;
+    });
+
+    const bell = document.getElementById('notificationBellBtn');
+    const badge = document.getElementById('notificationBadge');
+
+    if (upcoming.length > 0) {
+      if (bell) bell.style.display = 'inline-flex';
+      if (badge) badge.innerText = upcoming.length;
+    } else {
+      if (bell) bell.style.display = 'none';
+    }
+
+    return upcoming;
   }
 
   openReminderListModal() {
-  const upcoming = this.checkRecurringReminders();
+    const upcoming = this.checkRecurringReminders();
 
-  if (upcoming.length === 0) {
-    this.showToast('No upcoming reminders.');
-    return;
-  }
+    if (upcoming.length === 0) {
+      this.showToast('No upcoming reminders.');
+      return;
+    }
 
-  upcoming.sort((a,b) => new Date(a.date) - new Date(b.date));
+    upcoming.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const rows = upcoming.map(tx => `
+    const rows = upcoming.map(tx => `
     <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.75rem 0.9rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
       <div style="min-width:0; flex:1;">
         <div style="font-weight:600; font-size:0.9rem;">${this.escapeHtml(tx.description)}</div>
@@ -1142,7 +1160,7 @@ class MoneyTrackerApp {
     </div>
   `).join('');
 
-  this.openModal(`
+    this.openModal(`
     <div class="modal-overlay active">
       <div class="modal" style="max-width:500px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -1159,11 +1177,11 @@ class MoneyTrackerApp {
   }
 
   // 3. The Reminder Modal UI
-openRecurringReminderModal(txOrId) {
-  const tx = typeof txOrId === 'string' ? this.state.transactions.find(t => t.id === txOrId) : txOrId;
-  if (!tx) return;
-  
-  const guessed = this.guessNextAmount(tx);
+  openRecurringReminderModal(txOrId) {
+    const tx = typeof txOrId === 'string' ? this.state.transactions.find(t => t.id === txOrId) : txOrId;
+    if (!tx) return;
+
+    const guessed = this.guessNextAmount(tx);
     const currentAmount = Math.abs(parseFloat(tx.amount) || 0).toFixed(2);
     const guessStr = guessed ? Math.abs(guessed).toFixed(2) : null;
 
@@ -1201,58 +1219,35 @@ openRecurringReminderModal(txOrId) {
     `);
   }
 
-    handleReminderAction(txId, mode) {
-  const newAmt = parseFloat(document.getElementById('reminderNewAmount').value);
-  if (isNaN(newAmt)) return;
+  handleReminderAction(txId, mode) {
+    const newAmt = parseFloat(document.getElementById('reminderNewAmount').value);
+    if (isNaN(newAmt)) return;
 
-  const tx = this.state.transactions.find(t => t.id === txId);
-  if (!tx) return;
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
 
-  if (mode === 'once') {
-    // Edit just this single instance
-    tx.amount = newAmt;
-    tx.reminderDismissed = true; 
-    this.showToast(`Updated this month's ${tx.description}`);
-  } else if (mode === 'future') {
-    // Find the master template for this group and update it
-    const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
-    
-    if (template) {
-      const dismissedDate = tx.date; // <-- Save the date before we delete it
-      template.amount = newAmt;
-      
-      // Remove all future instances for this group
-      this.state.transactions = this.state.transactions.filter(t => 
-        !(t.groupId === tx.groupId && t.status === 'estimated')
-      );
-      
-      // Re-expand from the updated template
-      this.expandRecurringTemplates();
-
-      // Find the newly generated instance for this same date and dismiss it
-      const newTx = this.state.transactions.find(t => 
-        t.groupId === tx.groupId && t.date === dismissedDate && t.status === 'estimated'
-      );
-      if (newTx) {
-        newTx.reminderDismissed = true; 
-      }
-      
-      this.showToast(`Updated ${tx.description} for all future months`);
-    } else {
-      // Fallback if template isn't found
+    if (mode === 'once') {
       tx.amount = newAmt;
-      tx.reminderDismissed = true; 
+      tx.reminderDismissed = true;
+      this.showToast(`Updated this month's ${tx.description}`);
+    } else if (mode === 'future') {
+      // Templates aren't in memory — update every estimated instance in the group.
+      // collapseRecurringForStorage will lift the first instance back into a template on save.
+      this.state.transactions.forEach(t => {
+        if (t.groupId === tx.groupId && t.status === 'estimated') {
+          t.amount = newAmt;
+        }
+      });
+      tx.reminderDismissed = true;
+      this.showToast(`Updated ${tx.description} for all future months`);
     }
-  }
 
-  this.saveState();
-  this.closeModal();
-  this.renderTabContent(this.currentTab);
-  this.checkRecurringReminders();
-  
-  // Check if there are more reminders queued up
-  setTimeout(() => this.checkRecurringReminders(), 500);
-    }
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent(this.currentTab);
+    this.checkRecurringReminders();
+    setTimeout(() => this.checkRecurringReminders(), 500);
+  }
 
   dismissReminder(txId) {
     const tx = this.state.transactions.find(t => t.id === txId);
@@ -1262,7 +1257,7 @@ openRecurringReminderModal(txOrId) {
     }
     this.closeModal();
     this.checkRecurringReminders();
-    
+
     // Check if there are more reminders queued up
     setTimeout(() => this.checkRecurringReminders(), 500);
   }
@@ -1273,20 +1268,20 @@ openRecurringReminderModal(txOrId) {
         const encoded = window.location.hash.replace('#import=', '');
         const decoded = decodeURIComponent(escape(atob(encoded)));
         const parsed = JSON.parse(decoded);
-        
+
         // Generate a unique profile name
         const newName = `Shared (${new Date().toLocaleDateString()})`;
         const profiles = this.loadProfiles();
         profiles[newName] = { state: parsed, savedAt: new Date().toISOString() };
-        
+
         this.saveProfiles(profiles);
         this.activeProfile = newName;
         this.state = parsed;
         localStorage.setItem('MONEY_TRACKER_ACTIVE_PROFILE', newName);
-        
+
         // Clear the URL hash so it looks clean
         window.history.replaceState(null, null, window.location.pathname);
-        
+
         setTimeout(() => this.showToast('✅ Profile imported from Magic Link!'), 500);
       } catch (e) {
         console.error('Magic link failed:', e);
@@ -1391,7 +1386,7 @@ openRecurringReminderModal(txOrId) {
     window.addEventListener('dragover', (e) => {
       e.preventDefault(); // Prevent browser from opening the file
     });
-    
+
     window.addEventListener('drop', (e) => {
       e.preventDefault();
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
@@ -1443,121 +1438,160 @@ openRecurringReminderModal(txOrId) {
     setTimeout(() => { try { this.renderCharts(); } catch (e) { console.error(e); } }, 50);
   }
 
-    tplDashboard() {
+  tplDashboard() {
     return `
       <section class="view-container active">
 
+        <div id="dashHero" style="margin-bottom:1.25rem;"></div>
+
         <div class="stat-header" id="dashboardStats"></div>
         
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; margin-top:1.5rem; flex-wrap:wrap; gap:0.5rem;">
+          <h2 style="font-size:1.1rem; font-weight:700; margin:0;">Overview</h2>
+          <div style="display:flex; align-items:center; gap:0.5rem;">
+            <span style="font-size:0.8rem; color:var(--text-muted);">Timeframe:</span>
+            <select id="dashBillRange" onchange="app.updateDashBillRange(this.value)" style="width:auto; min-width:130px; padding:0.35rem 0.5rem; font-size:0.8rem; border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-main); border:1px solid var(--border-subtle);">
+              <option value="7" ${this.upcomingBillsRange === 7 ? 'selected' : ''}>Next / Past 1 Week</option>
+              <option value="14" ${this.upcomingBillsRange === 14 ? 'selected' : ''}>Next / Past 2 Weeks</option>
+              <option value="21" ${this.upcomingBillsRange === 21 ? 'selected' : ''}>Next / Past 3 Weeks</option>
+              <option value="28" ${this.upcomingBillsRange === 28 ? 'selected' : ''}>Next / Past 4 Weeks</option>
+            </select>
+          </div>
+        </div>
+        
         <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem;">
+          
           <!-- UPCOMING BILLS CARD -->
-          <div class="card">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+          <div class="card" style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600; margin:0;">Upcoming Bills</h3>
-              <div style="display:flex; gap:0.5rem; align-items:center;">
-                <select id="dashBillRange" onchange="app.updateDashBillRange(this.value)" style="width:auto; min-width:110px; padding:0.25rem 0.5rem; font-size:0.75rem; border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-main); border:1px solid var(--border-subtle);">
-                  <option value="7" ${this.upcomingBillsRange === 7 ? 'selected' : ''}>Next 1 Week</option>
-                  <option value="14" ${this.upcomingBillsRange === 14 ? 'selected' : ''}>Next 2 Weeks</option>
-                  <option value="21" ${this.upcomingBillsRange === 21 ? 'selected' : ''}>Next 3 Weeks</option>
-                  <option value="28" ${this.upcomingBillsRange === 28 ? 'selected' : ''}>Next 4 Weeks</option>
-                </select>
-                <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">Calendar</button>
-              </div>
+              <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">Calendar</button>
             </div>
-            <div id="dashUpcomingBills"></div>
+            <div id="dashUpcomingBills" style="flex:1; overflow-y:auto; max-height:420px; padding-right:4px;"></div>
           </div>
 
           <!-- RECENT ACTIVITY CARD -->
-          <div class="card">
+          <div class="card" style="display:flex; flex-direction:column;">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
               <h3 style="font-size:1rem; font-weight:600;">Recent Activity</h3>
               <button class="btn btn-sm" data-action="switchTab" data-tab="checking">View All</button>
             </div>
-            <div id="dashRecentActivity"></div>
+            <div id="dashRecentActivity" style="flex:1; overflow-y:auto; max-height:420px; padding-right:4px;"></div>
+          </div>
+
+          <!-- TOP VAULTS CARD -->
+          <div class="card" style="display:flex; flex-direction:column;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
+              <h3 style="font-size:1rem; font-weight:600;">Top Vaults</h3>
+              <button class="btn btn-sm" data-action="switchTab" data-tab="savings">Savings</button>
+            </div>
+            <div id="dashVaults" style="flex:1; overflow-y:auto; max-height:420px; padding-right:4px;"></div>
+          </div>
+
+          <!-- SPENDING DONUT -->
+          <div class="card" style="grid-column: 1 / -1;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
+              <h3 style="font-size:1rem; font-weight:600;">Spending by Category</h3>
+              <select id="dashSpendingRange" onchange="app.onDashSpendingChange(this.value)"
+                style="width:auto; min-width:150px; padding:0.25rem 0.5rem; font-size:0.75rem; border-radius:var(--radius-sm); background:var(--bg-base); color:var(--text-main); border:1px solid var(--border-subtle);">
+                <option value="last_month">Last Month</option>
+                <option value="last_week">Last Week</option>
+                <option value="month_avg">Monthly Average</option>
+                <option value="week_avg">Weekly Average</option>
+              </select>
+            </div>
+            <div style="display:grid; grid-template-columns:minmax(200px,280px) 1fr; gap:1.25rem; align-items:center;">
+              <canvas id="dashCategoryDonut" height="220" style="width:100%; display:block;"></canvas>
+              <div id="dashCategoryLegend" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:0.4rem;"></div>
+            </div>
           </div>
         </div>
       </section>`;
   }
 
   renderDashboardView() {
-    // 1. Top Stats (Net Worth + Monthly Surplus + Cash Flow Projections)
+    const hero = this.getSafeToSpend(7);
+    const heroEl = document.getElementById('dashHero');
+    if (heroEl) {
+      const toneColor = { positive: 'var(--accent-positive)', pending: 'var(--accent-pending)', negative: 'var(--accent-negative)' }[hero.tone];
+      const toneBg = { positive: 'rgba(0,255,157,0.06)', pending: 'rgba(255,176,32,0.06)', negative: 'rgba(255,61,113,0.08)' }[hero.tone];
+      const toneBorder = { positive: 'rgba(0,255,157,0.25)', pending: 'rgba(255,176,32,0.3)', negative: 'rgba(255,61,113,0.35)' }[hero.tone];
+      
+      heroEl.innerHTML = `
+        <div style="background:${toneBg}; border:1px solid ${toneBorder}; border-radius:var(--radius-lg); padding:1.25rem 1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
+          <div>
+            <div class="stat-label" style="font-size:0.7rem; letter-spacing:0.1em; margin-bottom:0.25rem;">SAFE TO SPEND · NEXT 7 DAYS</div>
+            <div class="mono" style="font-size:2.2rem; font-weight:800; color:${toneColor}; line-height:1; text-shadow:0 0 20px ${toneColor}44;">
+              $${hero.safe.toFixed(2)}
+            </div>
+            <div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.4rem;">
+              $${hero.checking.toFixed(2)} available · $${hero.billsTotal.toFixed(2)} in upcoming bills
+            </div>
+          </div>
+          <button class="btn btn-sm" data-action="switchTab" data-tab="calendar">View Bills →</button>
+        </div>`;
+    }
+
     const chk = this.getBalances('CHECKING');
     const sav = this.getBalances('SAVINGS');
     const nw = chk.available + sav.available + chk.vaults;
 
-    // Forecaster surplus math
-    const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
-    const avgInc = gi('fcAvgIncome');
-    const avgFix = gi('fcAvgFixed');
-    const avgVar = gi('fcAvgVariable');
-    let scenSum = 0;
-    (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
-    const netSurplus = avgInc - avgFix - avgVar + scenSum;
-
-    // --- NEW: Cash Flow Projection Logic ---
-    const today = new Date(); 
-    today.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
     const getProjectedBalance = (days) => {
       const targetDate = new Date(today); 
       targetDate.setDate(today.getDate() + days);
       
-      // Find all upcoming estimated bills and paychecks in this window
       const upcoming = this.state.transactions.filter(t => {
         if (t.status !== 'estimated' || t.deletedAt) return false;
         const txDate = new Date(t.date + 'T00:00:00');
         return txDate >= today && txDate <= targetDate;
       });
 
-      // Sum them up (positive for paychecks, negative for bills)
       const upcomingTotal = upcoming.reduce((sum, t) => sum + (parseFloat(t.amount) || 0), 0);
-      
-      // Add to current checking balance
       return chk.available + upcomingTotal;
     };
 
     const proj7 = getProjectedBalance(7);
-const proj14 = getProjectedBalance(14);
-const proj21 = getProjectedBalance(21); // <-- NEW: Added 21 days
-const proj30 = getProjectedBalance(30);
-// ---------------------------------------
+    const proj14 = getProjectedBalance(14);
+    const proj21 = getProjectedBalance(21);
+    const proj30 = getProjectedBalance(30);
 
-const stats = document.getElementById('dashboardStats');
-if (stats) stats.innerHTML = `
-  <div class="stat-card">
-    <div class="stat-label">Total Net Worth</div>
-    <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
-    <div class="stat-subtext">Checking + Savings + Vaults</div>
-  </div>
-  
-  <!-- CASH FLOW CARD (Surplus card removed) -->
-  <div class="stat-card" style="border-color: rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, var(--bg-surface) 100%);">
-    <div class="stat-label" style="margin-bottom:0.5rem;">Projected Cash Flow</div>
-    
-    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
-       <span style="font-size:0.8rem; color:var(--text-muted);">Next 7 Days</span>
-       <span class="mono" style="font-weight:700; color:${proj7 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj7.toFixed(2)}</span>
-    </div>
-    
-    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
-       <span style="font-size:0.8rem; color:var(--text-muted);">Next 14 Days</span>
-       <span class="mono" style="font-weight:700; color:${proj14 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj14.toFixed(2)}</span>
-    </div>
+    const stats = document.getElementById('dashboardStats');
+    if (stats) stats.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Total Net Worth</div>
+        <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
+        <div class="stat-subtext">Checking + Savings + Vaults</div>
+      </div>
+      
+      <div class="stat-card" style="border-color: rgba(0, 229, 255, 0.3); background: linear-gradient(180deg, rgba(0,229,255,0.05) 0%, var(--bg-surface) 100%);">
+        <div class="stat-label" style="margin-bottom:0.5rem;">Projected Cash Flow</div>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 7 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj7 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj7.toFixed(2)}</span>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 14 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj14 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj14.toFixed(2)}</span>
+        </div>
 
-    <!-- NEW 21 DAYS ROW -->
-    <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
-       <span style="font-size:0.8rem; color:var(--text-muted);">Next 21 Days</span>
-       <span class="mono" style="font-weight:700; color:${proj21 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj21.toFixed(2)}</span>
-    </div>
-    
-    <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.25rem; border-top:1px dashed var(--border-subtle);">
-       <span style="font-size:0.8rem; color:var(--text-muted);">Next 30 Days</span>
-       <span class="mono" style="font-weight:700; color:${proj30 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj30.toFixed(2)}</span>
-    </div>
-  </div>
-`;
+        <div style="display:flex; justify-content:space-between; margin-bottom:0.25rem; align-items:center;">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 21 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj21 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj21.toFixed(2)}</span>
+        </div>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; padding-top:0.25rem; border-top:1px dashed var(--border-subtle);">
+           <span style="font-size:0.8rem; color:var(--text-muted);">Next 30 Days</span>
+           <span class="mono" style="font-weight:700; color:${proj30 >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'};">$${proj30.toFixed(2)}</span>
+        </div>
+      </div>
+    `;
 
-    // 2. Upcoming Bills
+    // 1. Upcoming Bills
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + this.upcomingBillsRange);
     
@@ -1575,7 +1609,7 @@ if (stats) stats.innerHTML = `
         billsEl.innerHTML = bills.map(t => `
           <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
             <div style="min-width:0; flex:1;">
-              <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.description)}</div>
+              <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.nickname || t.description)}</div>
               <div style="font-size:0.7rem; color:var(--text-dim);">${t.date}</div>
             </div>
             <div style="display:flex; align-items:center; gap:0.5rem; flex-shrink:0;">
@@ -1587,16 +1621,23 @@ if (stats) stats.innerHTML = `
       }
     }
 
-    // 3. Recent Activity (Last 5 posted transactions)
+    // 2. Recent Activity (Filtered by the Timeframe dropdown)
+    const pastDate = new Date(today);
+    pastDate.setDate(today.getDate() - this.upcomingBillsRange);
+    
     const recent = this.state.transactions
-      .filter(t => t.status !== 'estimated' && !t.deletedAt)
+      .filter(t => {
+        if (t.status === 'estimated' || t.deletedAt) return false;
+        const txDate = new Date(t.date + 'T00:00:00');
+        return txDate >= pastDate && txDate <= new Date(); // Included up to end of today
+      })
       .sort((a, b) => new Date(b.date) - new Date(a.date))
-      .slice(0, 5);
+      .slice(0, 20); // Increased limit to show more history
 
     const recentEl = document.getElementById('dashRecentActivity');
     if (recentEl) {
       if (!recent.length) {
-        recentEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No posted transactions yet.</div>';
+        recentEl.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No activity in the past ${this.upcomingBillsRange} days.</div>`;
       } else {
         recentEl.innerHTML = recent.map(t => `
           <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.6rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem;">
@@ -1609,52 +1650,80 @@ if (stats) stats.innerHTML = `
         `).join('');
       }
     }
+
+    // 3. Top Vaults
+    const vaultsEl = document.getElementById('dashVaults');
+    if (vaultsEl) {
+      const vaults = [...(this.state.vaults || [])].sort((a,b) => (parseFloat(b.balance) || 0) - (parseFloat(a.balance) || 0)).slice(0, 4);
+      const totalVaults = (this.state.vaults || []).reduce((s, v) => s + (parseFloat(v.balance) || 0), 0);
+
+      if (!vaults.length) {
+        vaultsEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.85rem; text-align:center; padding:1rem 0;">No vaults created yet.</div>';
+      } else {
+        vaultsEl.innerHTML = vaults.map(v => {
+          const pct = totalVaults > 0 ? (parseFloat(v.balance) / totalVaults) * 100 : 0;
+          return `
+          <div style="margin-bottom:0.85rem;">
+            <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem;">
+              <span style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(v.name)}</span>
+              <span class="mono" style="font-weight:600; color:var(--accent-positive);">$${(parseFloat(v.balance) || 0).toFixed(2)}</span>
+            </div>
+            <div style="height:6px; background:var(--bg-elevated); border-radius:3px; overflow:hidden;">
+              <div style="height:100%; width:${pct}%; background:var(--accent-primary); border-radius:3px;"></div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+    }
+
+    // 4. Render Donut
+    setTimeout(() => this.renderDashDonut(), 30);
   }
 
   updateDashBillRange(val) {
-  this.upcomingBillsRange = parseInt(val);
-  this.renderDashboardView();
-}
-
-markBillAsPaid(txId) {
-  const tx = this.state.transactions.find(t => t.id === txId);
-  if (!tx) return;
-
-  // Find the template for this recurring bill
-  const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
-  if (template) {
-    if (!template.ruleConfig) template.ruleConfig = {};
-    if (!template.ruleConfig.skippedDates) template.ruleConfig.skippedDates = [];
-    // Add this specific date to the "skipped" list
-    template.ruleConfig.skippedDates.push(tx.date);
+    this.upcomingBillsRange = parseInt(val);
+    this.renderDashboardView();
   }
 
-  // Create a real POSTED transaction for today
-  this.state.transactions.push({
-    id: `tx_${Date.now()}_paid`,
-    account: tx.account,
-    date: new Date().toISOString().split('T')[0],
-    description: tx.description,
-    nickname: tx.nickname,
-    category: tx.category,
-    flow: tx.flow,
-    amount: tx.amount,
-    status: 'POSTED'
-  });
+  markBillAsPaid(txId) {
+    const tx = this.state.transactions.find(t => t.id === txId);
+    if (!tx) return;
 
-  this.expandRecurringTemplates();
-  this.recalculateBalances();
-  this.saveState();
-  this.renderTabContent(this.currentTab);
-  this.checkRecurringReminders(); // Update the bell badge
-  this.showToast(`✅ Marked ${tx.description} as paid`);
-}
+    // Find the template for this recurring bill
+    const template = this.state.transactions.find(t => t.groupId === tx.groupId && t.isTemplate);
+    if (template) {
+      if (!template.ruleConfig) template.ruleConfig = {};
+      if (!template.ruleConfig.skippedDates) template.ruleConfig.skippedDates = [];
+      // Add this specific date to the "skipped" list
+      template.ruleConfig.skippedDates.push(tx.date);
+    }
+
+    // Create a real POSTED transaction for today
+    this.state.transactions.push({
+      id: `tx_${Date.now()}_paid`,
+      account: tx.account,
+      date: new Date().toISOString().split('T')[0],
+      description: tx.description,
+      nickname: tx.nickname,
+      category: tx.category,
+      flow: tx.flow,
+      amount: tx.amount,
+      status: 'POSTED'
+    });
+
+    this.expandRecurringTemplates();
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent(this.currentTab);
+    this.checkRecurringReminders(); // Update the bell badge
+    this.showToast(`✅ Marked ${tx.description} as paid`);
+  }
 
   tplChecking() {
-  const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
-  const trashCount = (this.state.transactions || []).filter(t => t.deletedAt).length;
+    const lockedCount = (this.state.transactions || []).filter(t => t.locked).length;
+    const trashCount = (this.state.transactions || []).filter(t => t.deletedAt).length;
 
-  return `
+    return `
   <section class="view-container active">
     <div class="stat-header" id="checkingStats"></div>
     <div class="card" style="margin-bottom:1.5rem;">
@@ -1680,7 +1749,6 @@ markBillAsPaid(txId) {
         <button class="btn btn-sm" data-action="openTrashModal" title="View deleted transactions">🗑 Trash${trashCount ? ` (${trashCount})` : ''}</button>
         <button class="btn btn-sm" data-action="toggleDensity" title="Toggle table row height">Toggle Density</button>
         <button class="btn btn-sm" data-action="openRulesModal" title="Manage auto-categorization and nicknaming rules">⚙️ Rules</button>
-        <button class="btn btn-sm" data-action="openMassEditModal" title="Bulk update categories or nicknames">Mass Edit</button>
         <button class="btn btn-sm" data-action="startBankSync" title="Compare bank balance and auto-fill pending">⚖️ Sync Bank</button>
         <button class="btn btn-sm btn-primary" data-action="openAddPendingModal" title="Manually add a pending transaction">+ Add Pending</button>
     </div>
@@ -1739,7 +1807,7 @@ markBillAsPaid(txId) {
   }
 
   tplNetworth() {
-  return `
+    return `
     <section class="view-container active">
       <div class="stat-header" id="networthStats"></div>
       <div class="card" style="margin-bottom:1.5rem;">
@@ -1861,7 +1929,7 @@ markBillAsPaid(txId) {
   }
 
   tplCalendar() {
-  return `
+    return `
     <section class="view-container active">
       <div id="calendarMonthSummary" style="margin-bottom:1rem;"></div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
@@ -1899,7 +1967,7 @@ markBillAsPaid(txId) {
   }
 
   tplForecaster() {
-  return `
+    return `
     <section class="view-container active">
       <div class="card" style="margin-bottom:1.25rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
@@ -2045,7 +2113,7 @@ markBillAsPaid(txId) {
     return tax;
   }
 
-    renderCheckingView() {
+  renderCheckingView() {
     const bal = this.getBalances('CHECKING');
     const stats = document.getElementById('checkingStats');
     if (stats) stats.innerHTML = `
@@ -2125,15 +2193,15 @@ markBillAsPaid(txId) {
   }
 
   buildCheckingRow(t) {
-  const isPending = t.status === 'pending';
-  const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
-  const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
-  const dn = t.nickname
-    ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
-    : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
+    const isPending = t.status === 'pending';
+    const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
+    const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
+    const dn = t.nickname
+      ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
+      : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
 
-  if (isPending) {
-    return `<tr data-tx-row="${t.id}">
+    if (isPending) {
+      return `<tr data-tx-row="${t.id}">
       <td></td>
       <td class="mono">${t.date}</td>
       <td>${dn}</td>
@@ -2150,10 +2218,10 @@ markBillAsPaid(txId) {
         </div>
       </td>
     </tr>`;
-  }
+    }
 
-  const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
-  return `<tr data-tx-row="${t.id}">
+    const catOpts = CATEGORIES.map(c => `<option value="${c}" ${t.category === c ? 'selected' : ''}>${c}</option>`).join('');
+    return `<tr data-tx-row="${t.id}">
     <td><input type="checkbox" data-row-checkbox="${t.id}" ${this.selectedRows.has(t.id) ? 'checked' : ''}></td>
     <td class="mono">${t.date}</td>
     <td>${dn}</td>
@@ -2169,12 +2237,12 @@ markBillAsPaid(txId) {
   </tr>`;
   }
 
-    renderSavingsView() {
-      const bal = this.getBalances('SAVINGS');
-      const totalSavings = bal.available + bal.vaults; // This combines your ledger and vaults
-    
-      const stats = document.getElementById('savingsStats');
-      if (stats) stats.innerHTML = `
+  renderSavingsView() {
+    const bal = this.getBalances('SAVINGS');
+    const totalSavings = bal.available + bal.vaults; // This combines your ledger and vaults
+
+    const stats = document.getElementById('savingsStats');
+    if (stats) stats.innerHTML = `
         <div class="stat-card">
           <div class="stat-label" style="display:flex; justify-content:space-between; align-items:center;">
             <span>Total Savings Balance</span>
@@ -2195,13 +2263,13 @@ markBillAsPaid(txId) {
           <div class="stat-value mono" style="color:var(--accent-secondary)">$${bal.vaults.toFixed(2)}</div>
           <div class="stat-subtext">Earmarked funds</div>
         </div>`;
-    
-      const vc = document.getElementById('vaultList');
-      if (vc) {
-        if ((this.state.vaults || []).length === 0) {
-          vc.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No vaults yet. Click "+ New Vault".</div>';
-        } else {
-          vc.innerHTML = this.state.vaults.map(v => `
+
+    const vc = document.getElementById('vaultList');
+    if (vc) {
+      if ((this.state.vaults || []).length === 0) {
+        vc.innerHTML = '<div style="color:var(--text-muted); padding:1rem 0; text-align:center;">No vaults yet. Click "+ New Vault".</div>';
+      } else {
+        vc.innerHTML = this.state.vaults.map(v => `
             <div style="display:flex; justify-content:space-between; align-items:center; padding:0.6rem 0; border-bottom:1px solid var(--border-subtle); gap:0.5rem;">
               <div style="min-width:0;">
                 <div style="font-weight:600;">${this.escapeHtml(v.name)}</div>
@@ -2213,10 +2281,10 @@ markBillAsPaid(txId) {
                 <button class="btn btn-sm" data-action="openEditVaultModal" data-vault-id="${v.id}" title="Edit vault name or balance">⚙️</button>
               </div>
             </div>`).join('');
-        }
       }
-      this.renderSavingsTable();
-        }
+    }
+    this.renderSavingsTable();
+  }
 
   renderSavingsTable() {
     const tbody = document.getElementById('savingsTableBody');
@@ -2250,6 +2318,27 @@ markBillAsPaid(txId) {
         <div style="font-size:1.4rem;" class="mono">$${rt.toFixed(2)}</div>
         <div style="color:var(--text-muted); font-size:0.85rem;">Total Swept from ${roundups.length} roundup transactions</div>
       </div>`;
+  }
+
+  getSafeToSpend(days = 7) {
+    const checking = this.getBalances('CHECKING').available;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const horizon = new Date(today);
+    horizon.setDate(today.getDate() + days);
+
+    let billsTotal = 0;
+    this.state.transactions.forEach(t => {
+      if (t.status !== 'estimated' || t.deletedAt || t.amount >= 0) return;
+      const d = new Date(t.date + 'T00:00:00');
+      if (d >= today && d <= horizon) billsTotal += Math.abs(t.amount);
+    });
+
+    const safe = checking - billsTotal;
+    let tone = 'positive';
+    if (safe < 0) tone = 'negative';
+    else if (safe < 100) tone = 'pending';
+    return { safe, checking, billsTotal, tone };
   }
 
   getBalances(accountKey) {
@@ -2307,57 +2396,57 @@ markBillAsPaid(txId) {
   }
 
   computeScenarioImpact(scenario) {
-  if (!scenario || !scenario.active) return 0;
-  const type = scenario.type || 'custom';
+    if (!scenario || !scenario.active) return 0;
+    const type = scenario.type || 'custom';
 
-  if (type === 'custom' || type === 'recurring') {
-    const raw = parseFloat(scenario.amount) || 0;
-    const abs = Math.abs(raw);
-    const sign = raw >= 0 ? 1 : -1;
-    const f = scenario.frequency;
+    if (type === 'custom' || type === 'recurring') {
+      const raw = parseFloat(scenario.amount) || 0;
+      const abs = Math.abs(raw);
+      const sign = raw >= 0 ? 1 : -1;
+      const f = scenario.frequency;
 
-    if (!f) return raw; // Legacy scenario — already stored as monthly
+      if (!f) return raw; // Legacy scenario — already stored as monthly
 
-    const int = Math.max(1, f.interval || 1);
-    let monthly = 0;
-    if (f.freq === 'days') monthly = (abs / int) * (365 / 12);
-    else if (f.freq === 'weeks') monthly = (abs / int) * (52 / 12);
-    else if (f.freq === 'months') monthly = abs / int;
-    else if (f.freq === 'years') monthly = abs / (12 * int);
-    else monthly = abs;
+      const int = Math.max(1, f.interval || 1);
+      let monthly = 0;
+      if (f.freq === 'days') monthly = (abs / int) * (365 / 12);
+      else if (f.freq === 'weeks') monthly = (abs / int) * (52 / 12);
+      else if (f.freq === 'months') monthly = abs / int;
+      else if (f.freq === 'years') monthly = abs / (12 * int);
+      else monthly = abs;
 
-    return sign * monthly;
-  }
+      return sign * monthly;
+    }
 
-  if (type === 'paycheck' || type === 'bill') {
-    const info = this.getRecurringGroupInfo(scenario.groupId);
-    if (!info) return 0;
-    const cfg = info.ruleConfig || { interval: 1, freq: 'weeks' };
-    const int = Math.max(1, cfg.interval || 1);
-    const absNew = Math.abs(parseFloat(scenario.amount) || 0);
-    let monthlyNew = 0;
-    if (cfg.freq === 'days') monthlyNew = (absNew / int) * (365 / 12);
-    else if (cfg.freq === 'weeks') monthlyNew = (absNew / int) * (52 / 12);
-    else if (cfg.freq === 'months') monthlyNew = absNew / int;
-    else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
-    const monthlyOld = Math.abs(info.monthly);
-    const delta = monthlyNew - monthlyOld;
-    return type === 'paycheck' ? delta : -delta;
-  }
+    if (type === 'paycheck' || type === 'bill') {
+      const info = this.getRecurringGroupInfo(scenario.groupId);
+      if (!info) return 0;
+      const cfg = info.ruleConfig || { interval: 1, freq: 'weeks' };
+      const int = Math.max(1, cfg.interval || 1);
+      const absNew = Math.abs(parseFloat(scenario.amount) || 0);
+      let monthlyNew = 0;
+      if (cfg.freq === 'days') monthlyNew = (absNew / int) * (365 / 12);
+      else if (cfg.freq === 'weeks') monthlyNew = (absNew / int) * (52 / 12);
+      else if (cfg.freq === 'months') monthlyNew = absNew / int;
+      else if (cfg.freq === 'years') monthlyNew = absNew / (12 * int);
+      const monthlyOld = Math.abs(info.monthly);
+      const delta = monthlyNew - monthlyOld;
+      return type === 'paycheck' ? delta : -delta;
+    }
 
-  if (type === 'loan') {
-    const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
-    if (!loan) return 0;
-    const ov = scenario.loanOverrides || {};
-    const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
-    const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
-    const t = parseFloat(ov.term != null ? ov.term : (loan.term || loan.termYears)) || 30;
-    const u = ov.termUnit != null ? ov.termUnit : (loan.termUnit || 'years');
-    const totalMonths = u === 'years' ? t * 12 : t;
-    return -this.calculatePI(bal, rate, totalMonths);
-  }
+    if (type === 'loan') {
+      const loan = (this.state.loans || []).find(l => l.id === scenario.loanId);
+      if (!loan) return 0;
+      const ov = scenario.loanOverrides || {};
+      const bal = parseFloat(ov.balance != null ? ov.balance : loan.balance) || 0;
+      const rate = parseFloat(ov.rate != null ? ov.rate : loan.rate) || 0;
+      const t = parseFloat(ov.term != null ? ov.term : (loan.term || loan.termYears)) || 30;
+      const u = ov.termUnit != null ? ov.termUnit : (loan.termUnit || 'years');
+      const totalMonths = u === 'years' ? t * 12 : t;
+      return -this.calculatePI(bal, rate, totalMonths);
+    }
 
-  return 0;
+    return 0;
   }
 
   updateRowCategory(id, newCat) {
@@ -2561,17 +2650,17 @@ markBillAsPaid(txId) {
     this.showToast('✓ Vaults synced with transaction history');
   }
 
-    recalculateBalances() {
+  recalculateBalances() {
     this.recalculateVaultBalances();
     ['CHECKING', 'SAVINGS'].forEach(acc => {
       // Start from the verified balance (defaults to 0 if never set)
       let running = parseFloat(this.state.accounts[acc]?.verifiedBalance) || 0;
-      
+
       const txs = this.state.transactions
         .filter(t => t.account === acc && t.status !== 'estimated' && !t.deletedAt)
-        .sort((a, b) => { 
-          const dA = new Date(a.date).getTime(), dB = new Date(b.date).getTime(); 
-          return dA !== dB ? dA - dB : (a.id || '').localeCompare(b.id || ''); 
+        .sort((a, b) => {
+          const dA = new Date(a.date).getTime(), dB = new Date(b.date).getTime();
+          return dA !== dB ? dA - dB : (a.id || '').localeCompare(b.id || '');
         });
 
       txs.forEach(tx => {
@@ -2724,7 +2813,7 @@ markBillAsPaid(txId) {
 
         const todayStr = new Date().toISOString().split('T')[0];
         const isToday = dateStr === todayStr;
-        
+
         const cell = document.createElement('div');
         cell.className = 'calendar-cell';
         if (isToday) {
@@ -2733,7 +2822,7 @@ markBillAsPaid(txId) {
           cell.style.background = 'rgba(0,229,255,0.03)';
         }
         cell.addEventListener('click', () => this.openDayDrawer(dateStr));
-        
+
         const num = document.createElement('div');
         num.style.fontWeight = '700';
         num.style.fontSize = '0.85rem';
@@ -2834,144 +2923,144 @@ markBillAsPaid(txId) {
   }
 
   renderCalendarChart() {
-const canvas = document.getElementById('calendarChart');
-if (!canvas) return;
-const rect = canvas.getBoundingClientRect();
-if (rect.width === 0 || rect.height === 0) return;
+    const canvas = document.getElementById('calendarChart');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
 
-const ctx = canvas.getContext('2d');
-const H = 260;
-canvas.width = rect.width * window.devicePixelRatio;
-canvas.height = H * window.devicePixelRatio;
-ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-ctx.clearRect(0, 0, rect.width, H);
+    const ctx = canvas.getContext('2d');
+    const H = 260;
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = H * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.clearRect(0, 0, rect.width, H);
 
-const year = this.calendarMonth.getFullYear();
-const month = this.calendarMonth.getMonth();
-const daysInMonth = new Date(year, month + 1, 0).getDate();
-const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
+    const year = this.calendarMonth.getFullYear();
+    const month = this.calendarMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const monthPrefix = `${year}-${String(month + 1).padStart(2, '0')}`;
 
-// FIXED: Removed 't.status !== estimated' so it includes recurring items
-const allTxs = [
-  ...this.state.transactions.filter(t => !t.deletedAt && t.date && t.date.startsWith(monthPrefix)),
-  ...this.state.pendingItems.filter(t => t.date && t.date.startsWith(monthPrefix))
-];
+    // FIXED: Removed 't.status !== estimated' so it includes recurring items
+    const allTxs = [
+      ...this.state.transactions.filter(t => !t.deletedAt && t.date && t.date.startsWith(monthPrefix)),
+      ...this.state.pendingItems.filter(t => t.date && t.date.startsWith(monthPrefix))
+    ];
 
-if (allTxs.length === 0) {
-  ctx.fillStyle = '#8a8f9e';
-  ctx.font = '13px Inter';
-  ctx.textAlign = 'center';
-  ctx.fillText('No transactions this month', rect.width / 2, H / 2);
-  return;
-}
+    if (allTxs.length === 0) {
+      ctx.fillStyle = '#8a8f9e';
+      ctx.font = '13px Inter';
+      ctx.textAlign = 'center';
+      ctx.fillText('No transactions this month', rect.width / 2, H / 2);
+      return;
+    }
 
-const dailyNet = new Array(daysInMonth).fill(0);
-allTxs.forEach(t => {
-  const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
-  if (flow === 'Internal Transfer' || t.category === 'Transfers') return;
-  const amt = parseFloat(t.amount) || 0;
-  const day = parseInt(t.date.slice(8, 10), 10);
-  if (day >= 1 && day <= daysInMonth) dailyNet[day - 1] += amt;
-});
+    const dailyNet = new Array(daysInMonth).fill(0);
+    allTxs.forEach(t => {
+      const flow = t.flow || CATEGORY_FLOW_MAP[t.category] || '';
+      if (flow === 'Internal Transfer' || t.category === 'Transfers') return;
+      const amt = parseFloat(t.amount) || 0;
+      const day = parseInt(t.date.slice(8, 10), 10);
+      if (day >= 1 && day <= daysInMonth) dailyNet[day - 1] += amt;
+    });
 
-const cumulative = [];
-let running = 0;
-for (let d = 0; d < daysInMonth; d++) {
-  running += dailyNet[d];
-  cumulative.push(running);
-}
+    const cumulative = [];
+    let running = 0;
+    for (let d = 0; d < daysInMonth; d++) {
+      running += dailyNet[d];
+      cumulative.push(running);
+    }
 
-const minV = Math.min(0, ...cumulative);
-const maxV = Math.max(0, ...cumulative);
-const span = (maxV - minV) || 10;
-const pad = span * 0.1;
-const yMin = minV - pad;
-const yMax = maxV + pad;
+    const minV = Math.min(0, ...cumulative);
+    const maxV = Math.max(0, ...cumulative);
+    const span = (maxV - minV) || 10;
+    const pad = span * 0.1;
+    const yMin = minV - pad;
+    const yMax = maxV + pad;
 
-const padL = 60, padR = 20, padT = 24, padB = 34;
-const chartW = rect.width - padL - padR;
-const chartH = H - padT - padB;
-const getX = i => padL + (i / Math.max(1, daysInMonth - 1)) * chartW;
-const getY = v => padT + (1 - (v - yMin) / (yMax - yMin)) * chartH;
+    const padL = 60, padR = 20, padT = 24, padB = 34;
+    const chartW = rect.width - padL - padR;
+    const chartH = H - padT - padB;
+    const getX = i => padL + (i / Math.max(1, daysInMonth - 1)) * chartW;
+    const getY = v => padT + (1 - (v - yMin) / (yMax - yMin)) * chartH;
 
-ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-ctx.lineWidth = 1;
-ctx.fillStyle = '#5a5e6b';
-ctx.font = '10px JetBrains Mono';
-ctx.textAlign = 'right';
-for (let i = 0; i <= 4; i++) {
-  const y = padT + (chartH / 4) * i;
-  ctx.beginPath();
-  ctx.moveTo(padL, y);
-  ctx.lineTo(rect.width - padR, y);
-  ctx.stroke();
-  const val = yMax - ((yMax - yMin) / 4) * i;
-  ctx.fillText(this.fmt(val), padL - 6, y + 3);
-}
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.fillStyle = '#5a5e6b';
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const y = padT + (chartH / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(padL, y);
+      ctx.lineTo(rect.width - padR, y);
+      ctx.stroke();
+      const val = yMax - ((yMax - yMin) / 4) * i;
+      ctx.fillText(this.fmt(val), padL - 6, y + 3);
+    }
 
-if (yMin <= 0 && yMax >= 0) {
-  const zeroY = getY(0);
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(padL, zeroY);
-  ctx.lineTo(rect.width - padR, zeroY);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
+    if (yMin <= 0 && yMax >= 0) {
+      const zeroY = getY(0);
+      ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(padL, zeroY);
+      ctx.lineTo(rect.width - padR, zeroY);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
 
-ctx.beginPath();
-cumulative.forEach((v, i) => {
-  const x = getX(i);
-  const y = getY(v);
-  if (i === 0) ctx.moveTo(x, y);
-  else ctx.lineTo(x, y);
-});
-ctx.lineTo(getX(daysInMonth - 1), padT + chartH);
-ctx.lineTo(getX(0), padT + chartH);
-ctx.closePath();
-const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
-grad.addColorStop(0, 'rgba(0,229,255,0.28)');
-grad.addColorStop(1, 'rgba(0,229,255,0)');
-ctx.fillStyle = grad;
-ctx.fill();
+    ctx.beginPath();
+    cumulative.forEach((v, i) => {
+      const x = getX(i);
+      const y = getY(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(getX(daysInMonth - 1), padT + chartH);
+    ctx.lineTo(getX(0), padT + chartH);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, padT, 0, padT + chartH);
+    grad.addColorStop(0, 'rgba(0,229,255,0.28)');
+    grad.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fill();
 
-ctx.beginPath();
-ctx.strokeStyle = '#00e5ff';
-ctx.lineWidth = 2.5;
-cumulative.forEach((v, i) => {
-  const x = getX(i);
-  const y = getY(v);
-  if (i === 0) ctx.moveTo(x, y);
-  else ctx.lineTo(x, y);
-});
-ctx.stroke();
+    ctx.beginPath();
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2.5;
+    cumulative.forEach((v, i) => {
+      const x = getX(i);
+      const y = getY(v);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
 
-const lastX = getX(daysInMonth - 1);
-const lastY = getY(cumulative[daysInMonth - 1]);
-ctx.beginPath();
-ctx.fillStyle = '#00e5ff';
-ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
-ctx.fill();
+    const lastX = getX(daysInMonth - 1);
+    const lastY = getY(cumulative[daysInMonth - 1]);
+    ctx.beginPath();
+    ctx.fillStyle = '#00e5ff';
+    ctx.arc(lastX, lastY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
 
-ctx.fillStyle = '#5a5e6b';
-ctx.font = '10px JetBrains Mono';
-ctx.textAlign = 'center';
-const maxLabels = Math.floor(chartW / 40);
-const step = Math.max(1, Math.ceil(daysInMonth / maxLabels));
-for (let d = 1; d <= daysInMonth; d += step) {
-  ctx.fillText(d, getX(d - 1), H - padB + 16);
-}
-if ((daysInMonth - 1) % step !== 0) {
-  ctx.fillText(daysInMonth, getX(daysInMonth - 1), H - padB + 16);
-}
+    ctx.fillStyle = '#5a5e6b';
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'center';
+    const maxLabels = Math.floor(chartW / 40);
+    const step = Math.max(1, Math.ceil(daysInMonth / maxLabels));
+    for (let d = 1; d <= daysInMonth; d += step) {
+      ctx.fillText(d, getX(d - 1), H - padB + 16);
+    }
+    if ((daysInMonth - 1) % step !== 0) {
+      ctx.fillText(daysInMonth, getX(daysInMonth - 1), H - padB + 16);
+    }
   }
 
   changeMonth(btn) {
-  const offset = parseInt(btn.dataset.offset) || 0;
-  this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
-  this.renderCalendarView();
-  this.renderCalendarChart();
+    const offset = parseInt(btn.dataset.offset) || 0;
+    this.calendarMonth.setMonth(this.calendarMonth.getMonth() + offset);
+    this.renderCalendarView();
+    this.renderCalendarChart();
   }
 
   openDayDrawer(dateStr) {
@@ -4012,7 +4101,7 @@ if ((daysInMonth - 1) % step !== 0) {
       </div>`;
   }
 
-    syncForecaster() {
+  syncForecaster() {
     const estimated = this.state.transactions.filter(t => t.status === 'estimated');
 
     const groups = new Map();
@@ -4040,7 +4129,7 @@ if ((daysInMonth - 1) % step !== 0) {
 
     const incEl = document.getElementById('fcAvgIncome');
     const fixEl = document.getElementById('fcAvgFixed');
-    
+
     // Check if the user has already typed in values that are different from the calculation
     const currentInc = parseFloat(incEl?.value) || 0;
     const currentFix = parseFloat(fixEl?.value) || 0;
@@ -4064,28 +4153,28 @@ if ((daysInMonth - 1) % step !== 0) {
   }
 
   _formatScenarioFreq(freq) {
-  if (!freq) return 'Monthly';
-  const int = Math.max(1, freq.interval || 1);
-  const word = (freq.freq || 'months').replace(/s$/, '');
-  return int === 1 ? `Every ${word}` : `Every ${int} ${word}s`;
+    if (!freq) return 'Monthly';
+    const int = Math.max(1, freq.interval || 1);
+    const word = (freq.freq || 'months').replace(/s$/, '');
+    return int === 1 ? `Every ${word}` : `Every ${int} ${word}s`;
   }
 
   renderForecaster() {
-  const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
-  const avgInc = gi('fcAvgIncome');
-  const avgFix = gi('fcAvgFixed');
-  const avgVar = gi('fcAvgVariable');
+    const gi = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const avgInc = gi('fcAvgIncome');
+    const avgFix = gi('fcAvgFixed');
+    const avgVar = gi('fcAvgVariable');
 
-  let scenSum = 0;
-  (this.state.scenarios || []).forEach(s => {
-    scenSum += this.computeScenarioImpact(s);
-  });
+    let scenSum = 0;
+    (this.state.scenarios || []).forEach(s => {
+      scenSum += this.computeScenarioImpact(s);
+    });
 
-  const netFull = avgInc - avgFix - avgVar + scenSum;
-  const netBills = avgInc - avgFix + scenSum;
+    const netFull = avgInc - avgFix - avgVar + scenSum;
+    const netBills = avgInc - avgFix + scenSum;
 
-  const cards = document.getElementById('forecastOutputCards');
-  if (cards) cards.innerHTML = `
+    const cards = document.getElementById('forecastOutputCards');
+    if (cards) cards.innerHTML = `
     <div class="forecast-col-card">
       <div class="stat-label">NET MONTHLY SURPLUS (FULL)</div>
       <div class="stat-value mono" style="color:${netFull >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}">$${netFull.toFixed(2)}</div>
@@ -4097,44 +4186,44 @@ if ((daysInMonth - 1) % step !== 0) {
       <div class="stat-subtext">Income minus Fixed Bills & Scenarios</div>
     </div>`;
 
-  const sList = document.getElementById('scenarioList');
-  if (sList) {
-    const typeIcons = { paycheck: '💰', bill: '📄', loan: '🏦', recurring: '🔁', custom: '⚙️' };
-    const typeLabels = { paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring', custom: 'Custom' };
+    const sList = document.getElementById('scenarioList');
+    if (sList) {
+      const typeIcons = { paycheck: '💰', bill: '📄', loan: '🏦', recurring: '🔁', custom: '⚙️' };
+      const typeLabels = { paycheck: 'Paycheck', bill: 'Bill', loan: 'Loan', recurring: 'Recurring', custom: 'Custom' };
 
-    sList.innerHTML = (this.state.scenarios || []).map(s => {
-      const type = s.type || 'custom';
-      const icon = typeIcons[type] || '⚙️';
-      const typeLabel = typeLabels[type] || 'Scenario';
+      sList.innerHTML = (this.state.scenarios || []).map(s => {
+        const type = s.type || 'custom';
+        const icon = typeIcons[type] || '⚙️';
+        const typeLabel = typeLabels[type] || 'Scenario';
 
-      const impact = this.computeScenarioImpact({ ...s, active: true });
-      const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
-      const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
+        const impact = this.computeScenarioImpact({ ...s, active: true });
+        const impactColor = impact >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+        const impactStr = `${impact >= 0 ? '+' : '-'}$${Math.abs(impact).toFixed(2)}/mo`;
 
-      let subtitle = '';
-      if (type === 'paycheck' || type === 'bill') {
-        const g = this.getRecurringGroupInfo(s.groupId);
-        if (g) subtitle = `${g.description} → $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)}`;
-        else subtitle = 'Missing recurring item';
-      } else if (type === 'loan') {
-        const l = (this.state.loans || []).find(x => x.id === s.loanId);
-        const ov = s.loanOverrides || {};
-        const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
-        const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
-        const trm = ov.term != null ? ov.term : (l ? (l.term || l.termYears) : 30);
-        const trmU = ov.termUnit != null ? ov.termUnit : (l ? (l.termUnit || 'years') : 'years');
-        subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm} ${trmU}`;
-      } else if (type === 'recurring') {
-        subtitle = s.frequency
-          ? `New ${this._formatScenarioFreq(s.frequency).toLowerCase()} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
-          : 'New recurring item';
-      } else {
-        subtitle = s.frequency
-          ? `${this._formatScenarioFreq(s.frequency)} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
-          : 'Freeform adjustment (monthly)';
-      }
+        let subtitle = '';
+        if (type === 'paycheck' || type === 'bill') {
+          const g = this.getRecurringGroupInfo(s.groupId);
+          if (g) subtitle = `${g.description} → $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)}`;
+          else subtitle = 'Missing recurring item';
+        } else if (type === 'loan') {
+          const l = (this.state.loans || []).find(x => x.id === s.loanId);
+          const ov = s.loanOverrides || {};
+          const bal = ov.balance != null ? ov.balance : (l ? l.balance : 0);
+          const rt = ov.rate != null ? ov.rate : (l ? l.rate : 0);
+          const trm = ov.term != null ? ov.term : (l ? (l.term || l.termYears) : 30);
+          const trmU = ov.termUnit != null ? ov.termUnit : (l ? (l.termUnit || 'years') : 'years');
+          subtitle = `${l ? l.name : 'Loan'} · $${(parseFloat(bal) || 0).toFixed(0)} @ ${rt}% × ${trm} ${trmU}`;
+        } else if (type === 'recurring') {
+          subtitle = s.frequency
+            ? `New ${this._formatScenarioFreq(s.frequency).toLowerCase()} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
+            : 'New recurring item';
+        } else {
+          subtitle = s.frequency
+            ? `${this._formatScenarioFreq(s.frequency)} · $${Math.abs(parseFloat(s.amount) || 0).toFixed(2)} each`
+            : 'Freeform adjustment (monthly)';
+        }
 
-      return `
+        return `
       <div class="scenario-item ${s.active ? '' : 'disabled'}">
         <div style="min-width:0; flex:1;">
           <div style="display:flex; align-items:center; gap:6px;">
@@ -4150,8 +4239,8 @@ if ((daysInMonth - 1) % step !== 0) {
           <button class="btn btn-sm" data-action="openEditScenarioModal" data-scenario-id="${s.id}">⚙️</button>
         </div>
       </div>`;
-    }).join('');
-  }
+      }).join('');
+    }
   }
 
   toggleScenario(btn) {
@@ -4234,14 +4323,14 @@ if ((daysInMonth - 1) % step !== 0) {
   }
 
   renderCharts() {
-  try {
-    if (this.currentTab === 'checking') this.renderCheckingChart();
-    else if (this.currentTab === 'networth') { this.renderNetWorthChart(); this.renderDonutChart(); }
-    else if (this.currentTab === 'debts') this.renderDebtSimulation();
-    else if (this.currentTab === 'forecaster') this.renderForecasterChart();
-    else if (this.currentTab === 'apy') this.renderAPY();
-    else if (this.currentTab === 'calendar') this.renderCalendarChart();
-  } catch (e) { console.error("Chart error:", e); }
+    try {
+      if (this.currentTab === 'checking') this.renderCheckingChart();
+      else if (this.currentTab === 'networth') { this.renderNetWorthChart(); this.renderDonutChart(); }
+      else if (this.currentTab === 'debts') this.renderDebtSimulation();
+      else if (this.currentTab === 'forecaster') this.renderForecasterChart();
+      else if (this.currentTab === 'apy') this.renderAPY();
+      else if (this.currentTab === 'calendar') this.renderCalendarChart();
+    } catch (e) { console.error("Chart error:", e); }
   }
 
   renderCheckingChart() {
@@ -4401,255 +4490,427 @@ if ((daysInMonth - 1) % step !== 0) {
     }
   }
 
+  onDashSpendingChange(val) {
+    this.spendingRange = val;
+    this.renderDashDonut();
+  }
+
   onSpendingRangeChange(val) {
-  this.spendingRange = val;
-  const input = document.getElementById('spendingCustomVal');
-  if (input) input.style.display = val.startsWith('last_custom') ? 'block' : 'none';
-  this.renderDonutChart();
-}
-
-onSpendingCustomInput(val) {
-  this.spendingCustom = parseInt(val) || 1;
-  this.renderDonutChart();
-}
-
-  renderDonutChart() {
-  const canvas = document.getElementById('categoryDonut');
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const ctx = canvas.getContext('2d');
-  canvas.width = rect.width * window.devicePixelRatio;
-  canvas.height = 240 * window.devicePixelRatio;
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  ctx.clearRect(0, 0, rect.width, 240);
-
-  // --- NEW DATE FILTERING LOGIC ---
-  const now = new Date();
-  now.setHours(23, 59, 59, 999);
-  let start = new Date(now);
-  let divisor = 1; // Used for averaging
-
-  const range = this.spendingRange;
-  if (range === 'week_avg') {
-    start.setDate(now.getDate() - 90);
-    divisor = 90 / 7; // ~12.85 weeks in 90 days
-  } else if (range === 'month_avg') {
-    start.setFullYear(now.getFullYear() - 1);
-    divisor = 12;
-  } else if (range === 'last_week') {
-    start.setDate(now.getDate() - 7);
-  } else if (range === 'last_month') {
-    start.setDate(now.getDate() - 30);
-  } else if (range === 'last_custom_days') {
-    start.setDate(now.getDate() - (this.spendingCustom || 30));
-  } else if (range === 'last_custom_weeks') {
-    start.setDate(now.getDate() - ((this.spendingCustom || 4) * 7));
-  } else if (range === 'last_custom_months') {
-    start.setMonth(now.getMonth() - (this.spendingCustom || 3));
+    this.spendingRange = val;
+    const input = document.getElementById('spendingCustomVal');
+    if (input) input.style.display = val.startsWith('last_custom') ? 'block' : 'none';
+    this.renderDonutChart();
   }
 
-  // Filter only posted, negative (spending) transactions in date range
-  const txs = this.state.transactions.filter(t => {
-    if (t.deletedAt || t.status === 'estimated' || parseFloat(t.amount) >= 0) return false;
-    const txDate = new Date(t.date + 'T00:00:00');
-    return txDate >= start && txDate <= now;
-  });
-
-  const totals = {};
-  let grand = 0;
-  
-  txs.forEach(t => {
-    const c = t.category || 'Miscellaneous';
-    // Apply divisor here to get average per week/month
-    const amt = Math.abs(parseFloat(t.amount) || 0) / divisor;
-    totals[c] = (totals[c] || 0) + amt;
-    grand += amt;
-  });
-
-  const legend = document.getElementById('categoryLegend');
-  if (grand === 0) {
-    ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
-    ctx.fillText('No spending data for this period', rect.width / 2, 120);
-    if (legend) legend.innerHTML = '';
-    return;
+  onSpendingCustomInput(val) {
+    this.spendingCustom = parseInt(val) || 1;
+    this.renderDonutChart();
   }
 
-  const cx = rect.width / 2, cy = 120, radius = 85;
-  const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
-  const threshold = grand * 0.03;
-  let otherVal = 0;
-  const display = [];
-  
-  entries.forEach(([cat, val]) => {
-    if (val < threshold) otherVal += val;
-    else display.push([cat, val]);
-  });
-  if (otherVal > 0) display.push(["Other", otherVal]);
+  renderDashDonut() {
+    const canvas = document.getElementById('dashCategoryDonut');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
 
-  let startA = -Math.PI / 2;
-  display.forEach(([cat, val]) => {
-    const sliceA = (val / grand) * Math.PI * 2;
-    const endA = startA + sliceA;
-    const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-    ctx.beginPath();
-    ctx.arc(cx, cy, radius, startA, endA);
-    ctx.arc(cx, cy, radius - 30, endA, startA, true);
-    ctx.closePath();
-    ctx.fillStyle = cfg.color; ctx.fill();
-    ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 2; ctx.stroke();
-    startA = endA;
-  });
+    const now = new Date(); now.setHours(23, 59, 59, 999);
+    const start = new Date(now);
+    let divisor = 1;
+    const range = this.spendingRange;
+    if (range === 'week_avg') { start.setDate(now.getDate() - 90); divisor = 90 / 7; }
+    else if (range === 'month_avg') { start.setFullYear(now.getFullYear() - 1); divisor = 12; }
+    else if (range === 'last_week') { start.setDate(now.getDate() - 7); }
+    else { start.setDate(now.getDate() - 30); }
 
-  // --- NEW LEGEND RENDER WITH % ---
-  if (legend) legend.innerHTML = display.map(([cat, val]) => {
-    const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
-    const pct = grand > 0 ? ((val / grand) * 100).toFixed(1) : '0.0';
-    return `<div style="display:flex; align-items:center; gap:0.4rem; font-size:0.75rem; background:var(--bg-base); padding:0.3rem 0.5rem; border-radius:6px; border:1px solid var(--border-subtle);">
-      <span style="width:8px; height:8px; border-radius:50%; background:${cfg.color}; flex-shrink:0;"></span>
-      <span style="font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${cat}</span>
-      <span style="color:var(--text-muted); margin-left:auto; white-space:nowrap;">
-        $${val.toFixed(0)} <span style="font-size:0.65rem; color:var(--text-dim);">(${pct}%)</span>
-      </span>
-    </div>`;
-  }).join('');
+    const totals = {}; let grand = 0;
+    const txsByCategory = {}; // NEW: Store raw transactions for the tooltip
+
+    this.state.transactions.forEach(t => {
+      if (t.deletedAt || t.status === 'estimated' || parseFloat(t.amount) >= 0) return;
+      const txDate = new Date(t.date + 'T00:00:00');
+      if (txDate < start || txDate > now) return;
+      
+      const c = t.category || 'Miscellaneous';
+      const amt = Math.abs(parseFloat(t.amount) || 0) / divisor;
+      
+      totals[c] = (totals[c] || 0) + amt;
+      grand += amt;
+      
+      if (!txsByCategory[c]) txsByCategory[c] = [];
+      txsByCategory[c].push(t);
+    });
+
+    const legend = document.getElementById('dashCategoryLegend');
+
+    if (grand === 0) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, rect.width, 220);
+      ctx.fillStyle = '#8a8f9e'; ctx.font = '12px Inter'; ctx.textAlign = 'center';
+      ctx.fillText('No spending in this window', rect.width / 2, 110);
+      if (legend) legend.innerHTML = '';
+      this._donutData = null;
+      return;
+    }
+
+    const entries = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+    const threshold = grand * 0.03;
+    let other = 0; const display = [];
+    entries.forEach(([c, v]) => v < threshold ? other += v : display.push([c, v]));
+    if (other > 0) display.push(['Other', other]);
+
+    // Save data for interactive hover math AND tooltips
+    this._donutData = { display, grand, rect, txs: txsByCategory };
+
+    // Bind hover events only once
+    if (!canvas._hasInteractiveListeners) {
+      canvas._hasInteractiveListeners = true;
+      
+      canvas.addEventListener('mousemove', (e) => {
+        if (!this._donutData) return;
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left;
+        const y = e.clientY - r.top;
+        const cx = r.width / 2, cy = 110;
+        const dx = x - cx, dy = y - cy;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist > 78 - 26 && dist < 78 + 10) {
+          let angle = Math.atan2(dy, dx);
+          if (angle < 0) angle += Math.PI * 2;
+          
+          let hovered = null;
+          let startA = -Math.PI / 2;
+          
+          for (const [cat, val] of this._donutData.display) {
+            const sliceA = (val / this._donutData.grand) * Math.PI * 2;
+            let s = startA;
+            let eA = startA + sliceA;
+            
+            let normS = s < 0 ? s + Math.PI * 2 : s;
+            let normE = eA < 0 ? eA + Math.PI * 2 : eA;
+
+            if (normS > normE) {
+              if (angle >= normS || angle <= normE) { hovered = cat; break; }
+            } else {
+              if (angle >= normS && angle <= normE) { hovered = cat; break; }
+            }
+            startA += sliceA;
+          }
+
+          if (hovered) {
+            canvas.style.cursor = 'pointer';
+            this._drawDonut(hovered);
+          } else {
+            canvas.style.cursor = 'default';
+            this._drawDonut(null);
+          }
+        } else {
+          canvas.style.cursor = 'default';
+          this._drawDonut(null);
+        }
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        canvas.style.cursor = 'default';
+        this._drawDonut(null);
+      });
+    }
+
+    // Build the legend with new hover attributes
+    if (legend) {
+      legend.innerHTML = display.map(([cat, val]) => {
+        const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
+        const pct = ((val / grand) * 100).toFixed(1);
+        return `<div class="legend-item" 
+                     onmouseenter="app.showLegendTooltip(event, '${cat}')" 
+                     onmouseleave="app.hideLegendTooltip()">
+          <span style="width:8px;height:8px;border-radius:50%;background:${cfg.color};flex-shrink:0;"></span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${cat}</span>
+          <span style="margin-left:auto;color:var(--text-muted);white-space:nowrap;">$${val.toFixed(0)} <span style="font-size:0.62rem;color:var(--text-dim);">(${pct}%)</span></span>
+        </div>`;
+      }).join('');
+    }
+
+    this._drawDonut(null);
+  }
+
+  _drawDonut(highlightCat) {
+    if (!this._donutData) return;
+    const canvas = document.getElementById('dashCategoryDonut');
+    if (!canvas) return;
+    
+    const { display, grand, rect } = this._donutData;
+    const ctx = canvas.getContext('2d');
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = 220 * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.clearRect(0, 0, rect.width, 220);
+
+    const cx = rect.width / 2, cy = 110, baseRadius = 78;
+    let startA = -Math.PI / 2;
+
+    display.forEach(([cat, val]) => {
+      const sliceA = (val / grand) * Math.PI * 2;
+      const endA = startA + sliceA;
+      const cfg = CATEGORY_COLORS[cat] || CATEGORY_COLORS['Other'];
+
+      // Expand the hovered slice
+      const isHovered = cat === highlightCat;
+      const radius = isHovered ? baseRadius + 6 : baseRadius;
+
+      // Draw the slice
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, startA, endA);
+      ctx.arc(cx, cy, radius - 26, endA, startA, true);
+      ctx.closePath();
+      ctx.fillStyle = cfg.color; ctx.fill();
+      ctx.strokeStyle = '#0a0a0f'; ctx.lineWidth = 2; ctx.stroke();
+
+      // --- Draw Percentage on the slice (if it's large enough) ---
+      const pct = (val / grand) * 100;
+      if (pct >= 6) {
+        const midAngle = startA + (sliceA / 2);
+        const midRadius = radius - 13; // Middle of the 26px thick ring
+        const tx = cx + Math.cos(midAngle) * midRadius;
+        const ty = cy + Math.sin(midAngle) * midRadius;
+        
+        ctx.fillStyle = '#0a0a0f'; // Dark text for contrast against bright slices
+        ctx.font = '700 10px Inter';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(Math.round(pct) + '%', tx, ty);
+      }
+
+      startA = endA;
+    });
+
+    // Draw center text
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    
+    if (highlightCat) {
+      const val = display.find(d => d[0] === highlightCat)[1];
+      const cfg = CATEGORY_COLORS[highlightCat] || CATEGORY_COLORS['Other'];
+      const pct = ((val / grand) * 100).toFixed(1);
+      
+      // Category Name
+      ctx.fillStyle = cfg.color;
+      ctx.font = '600 11px Inter';
+      ctx.fillText(highlightCat.substring(0, 14), cx, cy - 10);
+      
+      // Amount & Percentage
+      ctx.fillStyle = '#f0f2f8';
+      ctx.font = '700 13px JetBrains Mono';
+      ctx.fillText('$' + val.toFixed(0) + ' (' + pct + '%)', cx, cy + 10);
+      
+    } else {
+      // Default "Total Spent" state
+      ctx.fillStyle = '#8a8f9e';
+      ctx.font = '600 10px Inter';
+      ctx.fillText('TOTAL SPENT', cx, cy - 10);
+      
+      ctx.fillStyle = '#f0f2f8';
+      ctx.font = '700 16px JetBrains Mono';
+      ctx.fillText('$' + grand.toFixed(0), cx, cy + 10);
+    }
+  }
+
+    showLegendTooltip(e, cat) {
+    let tooltip = document.getElementById('chartTooltip');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'chartTooltip';
+      tooltip.className = 'chart-tooltip';
+      document.body.appendChild(tooltip);
+    }
+
+    const data = this._donutData;
+    if (!data) return;
+
+    let html = `<div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.5rem;">${cat}</div>`;
+    
+    // Total
+    const total = data.display.find(d => d[0] === cat)[1];
+    html += `<div style="display:flex; justify-content:space-between; margin-bottom:0.4rem;">
+                <span style="color:var(--text-muted);">Total Spent</span>
+                <span class="mono" style="font-weight:700;">$${total.toFixed(2)}</span>
+             </div>`;
+
+    // Top Transactions
+    if (cat !== 'Other' && data.txs[cat]) {
+      const topTxs = data.txs[cat].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 3);
+      
+      if (topTxs.length > 0) {
+        html += `<div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:0.3rem; border-top:1px solid var(--border-subtle); padding-top:0.5rem;">Top Transactions:</div>`;
+        html += `<div style="display:flex; flex-direction:column; gap:0.35rem;">`;
+        topTxs.forEach(t => {
+          html += `<div style="display:flex; justify-content:space-between; gap:0.5rem;">
+                      <span style="white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:140px;">${this.escapeHtml(t.nickname || t.description)}</span>
+                      <span class="mono" style="color:var(--accent-negative);">-$${Math.abs(t.amount).toFixed(2)}</span>
+                   </div>`;
+        });
+        html += `</div>`;
+      }
+    } else if (cat === 'Other') {
+       html += `<div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">Includes multiple smaller category totals.</div>`;
+    }
+
+    tooltip.innerHTML = html;
+    tooltip.classList.add('active');
+
+    // Position tooltip near mouse
+    const rect = tooltip.getBoundingClientRect();
+    let x = e.clientX + 15;
+    let y = e.clientY + 15;
+
+    // Prevent going off screen
+    if (x + rect.width > window.innerWidth) x = e.clientX - rect.width - 15;
+    if (y + rect.height > window.innerHeight) y = e.clientY - rect.height - 15;
+
+    tooltip.style.left = x + 'px';
+    tooltip.style.top = y + 'px';
+  }
+
+  hideLegendTooltip() {
+    const tooltip = document.getElementById('chartTooltip');
+    if (tooltip) tooltip.classList.remove('active');
   }
 
   renderForecasterChart() {
-  const canvas = document.getElementById('forecasterChart');
-  if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  if (rect.width === 0 || rect.height === 0) return;
-  const ctx = canvas.getContext('2d');
-  canvas.width = rect.width * window.devicePixelRatio;
-  canvas.height = 220 * window.devicePixelRatio;
-  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-  ctx.clearRect(0, 0, rect.width, 220);
+    const canvas = document.getElementById('forecasterChart');
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = 220 * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+    ctx.clearRect(0, 0, rect.width, 220);
 
-  const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
-  const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
-  let scenSum = 0;
-  (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
-  const netFull = avgInc - avgFix - avgVar + scenSum;
-  const netBills = avgInc - avgFix + scenSum;
-  const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
+    const gv = id => parseFloat(document.getElementById(id)?.value) || 0;
+    const avgInc = gv('fcAvgIncome'), avgFix = gv('fcAvgFixed'), avgVar = gv('fcAvgVariable');
+    let scenSum = 0;
+    (this.state.scenarios || []).forEach(s => { scenSum += this.computeScenarioImpact(s); });
+    const netFull = avgInc - avgFix - avgVar + scenSum;
+    const netBills = avgInc - avgFix + scenSum;
+    const start = this.getBalances('CHECKING').available + this.getBalances('SAVINGS').available + this.getBalances('SAVINGS').vaults;
 
-  const range = this.chartRanges.forecaster || 'year';
-  const today = new Date();
-  const mnShort = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  let num, stepF, stepB, lblFn;
+    const range = this.chartRanges.forecaster || 'year';
+    const today = new Date();
+    const mnShort = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let num, stepF, stepB, lblFn;
 
-  if (range === 'week') {
-    num = 7;
-    stepF = netFull / 30.4375;
-    stepB = netBills / 30.4375;
-    lblFn = i => {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    };
-  } else if (range === 'month') {
-    num = 30;
-    stepF = netFull / 30.4375;
-    stepB = netBills / 30.4375;
-    lblFn = i => {
-      const d = new Date(today);
-      d.setDate(d.getDate() + i);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    };
-  } else {
-    num = 12;
-    stepF = netFull;
-    stepB = netBills;
-    lblFn = i => {
-      const d = new Date(today);
-      d.setMonth(d.getMonth() + i);
-      return mnShort[d.getMonth()];
-    };
-  }
+    if (range === 'week') {
+      num = 7;
+      stepF = netFull / 30.4375;
+      stepB = netBills / 30.4375;
+      lblFn = i => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      };
+    } else if (range === 'month') {
+      num = 30;
+      stepF = netFull / 30.4375;
+      stepB = netBills / 30.4375;
+      lblFn = i => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + i);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      };
+    } else {
+      num = 12;
+      stepF = netFull;
+      stepB = netBills;
+      lblFn = i => {
+        const d = new Date(today);
+        d.setMonth(d.getMonth() + i);
+        return mnShort[d.getMonth()];
+      };
+    }
 
-  const dataF = [], dataB = [];
-  let bf = start, bb = start;
-  for (let i = 0; i <= num; i++) {
-    dataF.push({ x: i, y: bf });
-    dataB.push({ x: i, y: bb });
-    bf += stepF;
-    bb += stepB;
-  }
+    const dataF = [], dataB = [];
+    let bf = start, bb = start;
+    for (let i = 0; i <= num; i++) {
+      dataF.push({ x: i, y: bf });
+      dataB.push({ x: i, y: bb });
+      bf += stepF;
+      bb += stepB;
+    }
 
-  const allV = [...dataF.map(d => d.y), ...dataB.map(d => d.y)];
-  const minV = Math.min(...allV), maxV = Math.max(...allV);
-  const pad = (maxV - minV) * 0.1 || 10;
-  const startY = 44, endY = 180, ch = endY - startY;
-  const getX = i => 60 + (i / num) * (rect.width - 80);
-  const getY = v => endY - ((v - (minV - pad)) / ((maxV + pad) - (minV - pad))) * ch;
+    const allV = [...dataF.map(d => d.y), ...dataB.map(d => d.y)];
+    const minV = Math.min(...allV), maxV = Math.max(...allV);
+    const pad = (maxV - minV) * 0.1 || 10;
+    const startY = 44, endY = 180, ch = endY - startY;
+    const getX = i => 60 + (i / num) * (rect.width - 80);
+    const getY = v => endY - ((v - (minV - pad)) / ((maxV + pad) - (minV - pad))) * ch;
 
-  // Legend (top-left)
-  ctx.font = '600 10px Inter';
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#00e5ff';
-  ctx.fillRect(60, 14, 10, 3);
-  ctx.fillStyle = '#8a8f9e';
-  ctx.fillText('Full Net', 75, 20);
-  ctx.fillStyle = '#b26bff';
-  ctx.fillRect(155, 14, 10, 3);
-  ctx.fillStyle = '#8a8f9e';
-  ctx.fillText('Bills Only', 170, 20);
+    // Legend (top-left)
+    ctx.font = '600 10px Inter';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#00e5ff';
+    ctx.fillRect(60, 14, 10, 3);
+    ctx.fillStyle = '#8a8f9e';
+    ctx.fillText('Full Net', 75, 20);
+    ctx.fillStyle = '#b26bff';
+    ctx.fillRect(155, 14, 10, 3);
+    ctx.fillStyle = '#8a8f9e';
+    ctx.fillText('Bills Only', 170, 20);
 
-  // Range hint (top-right)
-  const rangeLabel = range === 'week' ? '7 days' : range === 'month' ? '30 days' : '12 months';
-  ctx.fillStyle = '#5a5e6b';
-  ctx.textAlign = 'right';
-  ctx.fillText(`Forward ${rangeLabel}`, rect.width - 20, 20);
+    // Range hint (top-right)
+    const rangeLabel = range === 'week' ? '7 days' : range === 'month' ? '30 days' : '12 months';
+    ctx.fillStyle = '#5a5e6b';
+    ctx.textAlign = 'right';
+    ctx.fillText(`Forward ${rangeLabel}`, rect.width - 20, 20);
 
-  // Grid
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillStyle = '#5a5e6b';
-  ctx.font = '10px JetBrains Mono';
-  ctx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const y = startY + (ch / 4) * i;
+    // Grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillStyle = '#5a5e6b';
+    ctx.font = '10px JetBrains Mono';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= 4; i++) {
+      const y = startY + (ch / 4) * i;
+      ctx.beginPath();
+      ctx.moveTo(60, y);
+      ctx.lineTo(rect.width - 20, y);
+      ctx.stroke();
+      ctx.fillText(this.fmt(maxV + pad - ((maxV + pad - (minV - pad)) / 4) * i), 55, y + 3);
+    }
+
+    // X labels
+    ctx.textAlign = 'center';
+    const st = Math.max(1, Math.ceil(num / 6));
+    for (let i = 0; i <= num; i += st) ctx.fillText(lblFn(i), getX(i), endY + 18);
+
+    // Full Net line
     ctx.beginPath();
-    ctx.moveTo(60, y);
-    ctx.lineTo(rect.width - 20, y);
+    ctx.strokeStyle = '#00e5ff';
+    ctx.lineWidth = 2.5;
+    dataF.forEach((d, i) => {
+      const x = getX(i), y = getY(d.y);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
     ctx.stroke();
-    ctx.fillText(this.fmt(maxV + pad - ((maxV + pad - (minV - pad)) / 4) * i), 55, y + 3);
-  }
 
-  // X labels
-  ctx.textAlign = 'center';
-  const st = Math.max(1, Math.ceil(num / 6));
-  for (let i = 0; i <= num; i += st) ctx.fillText(lblFn(i), getX(i), endY + 18);
+    // Bills Only line
+    ctx.beginPath();
+    ctx.strokeStyle = '#b26bff';
+    ctx.lineWidth = 2.5;
+    dataB.forEach((d, i) => {
+      const x = getX(i), y = getY(d.y);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
 
-  // Full Net line
-  ctx.beginPath();
-  ctx.strokeStyle = '#00e5ff';
-  ctx.lineWidth = 2.5;
-  dataF.forEach((d, i) => {
-    const x = getX(i), y = getY(d.y);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Bills Only line
-  ctx.beginPath();
-  ctx.strokeStyle = '#b26bff';
-  ctx.lineWidth = 2.5;
-  dataB.forEach((d, i) => {
-    const x = getX(i), y = getY(d.y);
-    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-  });
-  ctx.stroke();
-
-  // Endpoint dots
-  ctx.beginPath();
-  ctx.fillStyle = '#00e5ff';
-  ctx.arc(getX(num), getY(dataF[num].y), 3.5, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.fillStyle = '#b26bff';
-  ctx.arc(getX(num), getY(dataB[num].y), 3.5, 0, Math.PI * 2);
-  ctx.fill();
+    // Endpoint dots
+    ctx.beginPath();
+    ctx.fillStyle = '#00e5ff';
+    ctx.arc(getX(num), getY(dataF[num].y), 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.fillStyle = '#b26bff';
+    ctx.arc(getX(num), getY(dataB[num].y), 3.5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   openModal(html) {
@@ -4658,10 +4919,10 @@ onSpendingCustomInput(val) {
 
   closeModal(forceOrEl = false) {
     let force = forceOrEl === true;
-    
+
     // Only auto-save if the Sync modal is ACTUALLY open
     if (!force && document.getElementById('reconcileTargetBalance')) {
-      this.saveReconcileItems(); 
+      this.saveReconcileItems();
       return;
     }
     document.querySelectorAll('.modal-overlay').forEach(o => o.classList.remove('active'));
@@ -4919,7 +5180,7 @@ onSpendingCustomInput(val) {
         lines.forEach((line, idx) => {
           if (idx === 0 || !line.trim()) return;
 
-           // Bulletproof CSV parser that ignores commas inside quotes
+          // Bulletproof CSV parser that ignores commas inside quotes
           const csvRegex = /,(?=(?:(?:[^"]*"){2})*[^"]*$)/;
           const parts = line.split(csvRegex).map(s => s.trim().replace(/^"|"$/g, ''));
 
@@ -4994,21 +5255,21 @@ onSpendingCustomInput(val) {
         });
 
         pending--;
-          if (pending === 0) {
-            this.recalculateBalances();
-            this.applyCustomRules();
-            this.state.lastImportDate = new Date().toISOString();
-            this.saveState();
-            this.closeModal();
-            this.showToast(`Imported ${count} new transactions`);
-            this.renderTabContent(this.currentTab);
-            
-            // Trigger the Bank Sync check if Checking was imported
-            const isCheckingImport = this.stagedFiles.some(f => f.name.toLowerCase().includes('check') || !f.name.toLowerCase().includes('saving'));
-            if (count > 0 && isCheckingImport) {
-              setTimeout(() => this.openReconcileModal(), 500);
-            }
+        if (pending === 0) {
+          this.recalculateBalances();
+          this.applyCustomRules();
+          this.state.lastImportDate = new Date().toISOString();
+          this.saveState();
+          this.closeModal();
+          this.showToast(`Imported ${count} new transactions`);
+          this.renderTabContent(this.currentTab);
+
+          // Trigger the Bank Sync check if Checking was imported
+          const isCheckingImport = this.stagedFiles.some(f => f.name.toLowerCase().includes('check') || !f.name.toLowerCase().includes('saving'));
+          if (count > 0 && isCheckingImport) {
+            setTimeout(() => this.openReconcileModal(), 500);
           }
+        }
       };
       reader.readAsText(file);
     });
@@ -5044,12 +5305,12 @@ onSpendingCustomInput(val) {
       </div>`);
   }
 
-    savePendingItem() {
+  savePendingItem() {
     const accEl = document.getElementById('pendingAccount');
     const dateEl = document.getElementById('pendingDate');
     const descEl = document.getElementById('pendingDesc');
     const amtEl = document.getElementById('pendingAmount');
-    
+
     // Safety check
     if (!accEl || !dateEl || !descEl || !amtEl) {
       this.closeModal();
@@ -5062,31 +5323,31 @@ onSpendingCustomInput(val) {
     const amt = parseFloat(amtEl.value);
 
     // If they left fields blank, just close
-    if (!desc || isNaN(amt)) { 
+    if (!desc || isNaN(amt)) {
       this.closeModal();
-      return; 
+      return;
     }
 
     // Add the new pending item to state
     this.state.pendingItems.push({
-      id: `p_${Date.now()}`, 
-      account: acc, 
-      date: date, 
+      id: `p_${Date.now()}`,
+      account: acc,
+      date: date,
       description: desc,
-      nickname: this.getMatchingNickname(desc), 
-      amount: amt, 
+      nickname: this.getMatchingNickname(desc),
+      amount: amt,
       status: 'pending'
     });
-    
+
     this.saveState();
     this.closeModal();
     this.renderTabContent(this.currentTab);
     this.showToast('Pending item added');
   }
 
-    startBankSync() {
+  startBankSync() {
     const ledger = this.getBalances('CHECKING').ledger;
-    
+
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:400px; text-align:center;">
@@ -5103,9 +5364,9 @@ onSpendingCustomInput(val) {
     `);
   }
 
-    openReconcileModal() {
+  openReconcileModal() {
     const ledger = this.getBalances('CHECKING').ledger;
-    
+
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:520px;">
@@ -5147,11 +5408,11 @@ onSpendingCustomInput(val) {
         </div>
       </div>
     `);
-    
+
     this.updateReconcileGap();
   }
 
-    updateReconcileGap() {
+  updateReconcileGap() {
     const targetInput = document.getElementById('reconcileTargetBalance');
     const mathDisplay = document.getElementById('reconcileMathDisplay');
     const itemsContainer = document.getElementById('reconcileItemsContainer');
@@ -5160,16 +5421,16 @@ onSpendingCustomInput(val) {
     const target = parseFloat(targetInput.value) || 0;
     const ledger = this.getBalances('CHECKING').ledger;
     const totalGap = target - ledger;
-    
+
     // We use absolute values so the user just types positive numbers
     let addedPending = 0;
     document.querySelectorAll('.reconcile-item-amount').forEach(input => {
-      addedPending += Math.abs(parseFloat(input.value) || 0); 
+      addedPending += Math.abs(parseFloat(input.value) || 0);
     });
 
     const isBankLower = totalGap < 0;
     const absTotalGap = Math.abs(totalGap);
-    const remainingGap = isBankLower ? absTotalGap - addedPending : absTotalGap + addedPending;
+    const remainingGap = absTotalGap - addedPending;
 
     if (absTotalGap < 0.01) {
       mathDisplay.innerHTML = `
@@ -5220,7 +5481,7 @@ onSpendingCustomInput(val) {
     document.querySelectorAll('.reconcile-item-amount').forEach(input => {
       addedPending += Math.abs(parseFloat(input.value) || 0);
     });
-    
+
     const remainingGap = totalGap - addedPending;
 
     const row = document.createElement('div');
@@ -5231,7 +5492,7 @@ onSpendingCustomInput(val) {
       <button class="btn btn-sm btn-danger" onclick="this.parentElement.remove(); app.updateReconcileGap();">✕</button>
     `;
     list.appendChild(row);
-    
+
     row.querySelector('.reconcile-item-desc').focus();
     this.updateReconcileGap();
   }
@@ -5241,11 +5502,11 @@ onSpendingCustomInput(val) {
 
     const targetInput = document.getElementById('reconcileTargetBalance');
     if (!targetInput) return;
-    
+
     const target = parseFloat(targetInput.value) || 0;
     const ledger = this.getBalances('CHECKING').ledger;
     const totalGap = target - ledger;
-    
+
     // If Bank is lower than App (e.g. 828 vs 909), we need to subtract money.
     const isExpense = totalGap < 0;
 
@@ -5255,11 +5516,11 @@ onSpendingCustomInput(val) {
     document.querySelectorAll('#reconcileItemsList > div').forEach(row => {
       const desc = row.querySelector('.reconcile-item-desc').value.trim() || 'Pending Item';
       let amt = Math.abs(parseFloat(row.querySelector('.reconcile-item-amount').value) || 0);
-      
+
       if (amt !== 0) {
         // Apply the negative sign for the database
         const finalAmt = isExpense ? -amt : amt;
-        
+
         this.state.pendingItems.push({
           id: `p_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
           account: 'CHECKING',
@@ -5374,10 +5635,10 @@ onSpendingCustomInput(val) {
     this.showToast(`Transferred $${amount.toFixed(2)}`);
   }
 
-    openEditBalanceModal(btn) {
+  openEditBalanceModal(btn) {
     const acc = btn.dataset.account || 'CHECKING';
     const current = parseFloat(this.state.accounts[acc]?.verifiedBalance) || 0;
-    
+
     this.openModal(`
       <div class="modal-overlay active">
         <div class="modal" style="max-width:440px;">
@@ -5402,10 +5663,10 @@ onSpendingCustomInput(val) {
   saveEditedBalance(btn) {
     const acc = btn.dataset.account || 'CHECKING';
     const val = parseFloat(document.getElementById('editStartingBalance').value) || 0;
-    
+
     if (!this.state.accounts[acc]) this.state.accounts[acc] = {};
     this.state.accounts[acc].verifiedBalance = val;
-    
+
     this.recalculateBalances();
     this.saveState();
     this.closeModal();
@@ -5502,41 +5763,6 @@ onSpendingCustomInput(val) {
     this.renderTabContent(this.currentTab);
   }
 
-  openMassEditModal() {
-    const catOpts = `<option value="">-- Leave Unchanged --</option>` +
-      CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
-    this.openModal(`
-      <div class="modal-overlay active">
-        <div class="modal">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
-            <h2 style="font-size:1.2rem; font-weight:700;">Mass Edit</h2>
-            <button class="btn btn-sm" data-action="closeModal">Close</button>
-          </div>
-          <div style="display:flex; flex-direction:column; gap:0.75rem;">
-            <div><label class="stat-label">Search Text</label><input type="text" id="massSearch" placeholder="e.g. WALMART or WAL-MART"></div>
-            <div>
-              <label class="stat-label">Match Type</label>
-              <select id="massMatchType">
-                <option value="contains">Contains (partial match)</option>
-                <option value="exact">Exact Match (must be identical)</option>
-                <option value="begins">Begins With</option>
-                <option value="ends">Ends With</option>
-              </select>
-            </div>
-            <div style="font-size:0.7rem; color:var(--text-dim); margin-top:-0.25rem; line-height:1.3;">
-              Matches against <strong>both</strong> the raw bank description and the nickname.
-            </div>
-            <div><label class="stat-label">Assign Nickname</label><input type="text" id="massNickname"></div>
-            <div><label class="stat-label">Set Category</label><select id="massCategory">${catOpts}</select></div>
-          </div>
-          <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
-            <button class="btn" data-action="closeModal">Cancel</button>
-            <button class="btn btn-primary" data-action="applyMassEdit">Apply</button>
-          </div>
-        </div>
-      </div>`);
-  }
-
   applyMassEdit() {
     const q = document.getElementById('massSearch').value.trim().toLowerCase();
     const matchType = document.getElementById('massMatchType').value;
@@ -5603,7 +5829,7 @@ onSpendingCustomInput(val) {
     this.onScenarioTypeChange();
   }
 
-    updateScenarioPreview() {
+  updateScenarioPreview() {
     const previewEl = document.getElementById('scenarioImpactPreview');
     if (!previewEl) return; // Not on the custom/recurring form
 
@@ -5630,12 +5856,12 @@ onSpendingCustomInput(val) {
   }
 
   onScenarioTypeChange() {
-  const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
-  const el = document.getElementById('scenarioTypeFields');
-  if (!el) return;
+    const type = document.getElementById('scenarioTypeInput')?.value || 'custom';
+    const el = document.getElementById('scenarioTypeFields');
+    if (!el) return;
 
     if (type === 'custom' || type === 'recurring') {
-    el.innerHTML = `
+      el.innerHTML = `
       <div>
         <label class="stat-label">Amount ($) per occurrence</label>
         <input type="number" step="0.01" id="scenarioAmountInput" value="0" oninput="app.updateScenarioPreview()">
@@ -5664,19 +5890,19 @@ onSpendingCustomInput(val) {
         Monthly Impact: <strong style="color:var(--text-muted);">$0.00 / mo</strong>
       </div>
     `;
-    this.updateScenarioPreview(); // Initialize the preview
-    return;
-  }
-
-  if (type === 'paycheck') {
-    const groups = this.getRecurringGroups(['Income']);
-    if (!groups.length) {
-      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-        No recurring income items found. Add one on the Calendar tab first.
-      </div>`;
+      this.updateScenarioPreview(); // Initialize the preview
       return;
     }
-    el.innerHTML = `
+
+    if (type === 'paycheck') {
+      const groups = this.getRecurringGroups(['Income']);
+      if (!groups.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No recurring income items found. Add one on the Calendar tab first.
+      </div>`;
+        return;
+      }
+      el.innerHTML = `
       <div>
         <label class="stat-label">Recurring Income</label>
         <select id="scenarioGroupInput">
@@ -5690,18 +5916,18 @@ onSpendingCustomInput(val) {
       <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
         The projection will use the new amount instead of the original for this income.
       </div>`;
-    return;
-  }
-
-  if (type === 'bill') {
-    const groups = this.getRecurringGroups(['Bills and Utilities', 'Subscriptions']);
-    if (!groups.length) {
-      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-        No recurring bills found. Add one on the Calendar tab first.
-      </div>`;
       return;
     }
-    el.innerHTML = `
+
+    if (type === 'bill') {
+      const groups = this.getRecurringGroups(['Bills and Utilities', 'Subscriptions']);
+      if (!groups.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No recurring bills found. Add one on the Calendar tab first.
+      </div>`;
+        return;
+      }
+      el.innerHTML = `
       <div>
         <label class="stat-label">Recurring Bill</label>
         <select id="scenarioGroupInput">
@@ -5715,21 +5941,21 @@ onSpendingCustomInput(val) {
       <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
         Only the projection changes — the original bill on the Calendar stays the same.
       </div>`;
-    return;
-  }
-
-  if (type === 'loan') {
-    const loans = this.state.loans || [];
-    if (!loans.length) {
-      el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
-        No loans found. Add one on the Debts tab first.
-      </div>`;
       return;
     }
-    const l = loans[0];
-    const term = l.term || l.termYears || 30;
-    const termUnit = l.termUnit || 'years';
-    el.innerHTML = `
+
+    if (type === 'loan') {
+      const loans = this.state.loans || [];
+      if (!loans.length) {
+        el.innerHTML = `<div style="color:var(--text-muted); font-size:0.85rem; padding:0.5rem 0;">
+        No loans found. Add one on the Debts tab first.
+      </div>`;
+        return;
+      }
+      const l = loans[0];
+      const term = l.term || l.termYears || 30;
+      const termUnit = l.termUnit || 'years';
+      el.innerHTML = `
       <div>
         <label class="stat-label">Loan</label>
         <select id="scenarioLoanInput" onchange="app.onScenarioLoanChange()">
@@ -5760,8 +5986,8 @@ onSpendingCustomInput(val) {
       <div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">
         The monthly principal &amp; interest payment is subtracted as an expense in the projection.
       </div>`;
-    return;
-  }
+      return;
+    }
   }
 
   onScenarioLoanChange() {
@@ -5779,66 +6005,66 @@ onSpendingCustomInput(val) {
     if (termUnitEl) termUnitEl.value = l.termUnit || 'years';
   }
 
- saveScenario() {
-  const type = document.getElementById('scenarioTypeInput').value;
-  const rawName = document.getElementById('scenarioNameInput').value.trim();
-  const scenario = {
-    id: `sc_${Date.now()}`,
-    type,
-    name: rawName || 'Unnamed Scenario',
-    active: true,
-    amount: 0,
-    frequency: null,
-    groupId: null,
-    loanId: null,
-    loanOverrides: null
-  };
+  saveScenario() {
+    const type = document.getElementById('scenarioTypeInput').value;
+    const rawName = document.getElementById('scenarioNameInput').value.trim();
+    const scenario = {
+      id: `sc_${Date.now()}`,
+      type,
+      name: rawName || 'Unnamed Scenario',
+      active: true,
+      amount: 0,
+      frequency: null,
+      groupId: null,
+      loanId: null,
+      loanOverrides: null
+    };
 
-  if (type === 'custom' || type === 'recurring') {
-    const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
-    if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-    scenario.amount = amt;
-    scenario.frequency = {
-      interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
-      freq: document.getElementById('scenarioFreq')?.value || 'months'
-    };
-    if (!rawName) {
-      scenario.name = type === 'recurring' ? 'New recurring item' : 'Custom scenario';
+    if (type === 'custom' || type === 'recurring') {
+      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+      scenario.amount = amt;
+      scenario.frequency = {
+        interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
+        freq: document.getElementById('scenarioFreq')?.value || 'months'
+      };
+      if (!rawName) {
+        scenario.name = type === 'recurring' ? 'New recurring item' : 'Custom scenario';
+      }
+    } else if (type === 'paycheck' || type === 'bill') {
+      const groupId = document.getElementById('scenarioGroupInput')?.value;
+      if (!groupId) { alert('Select a recurring item.'); return; }
+      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+      const info = this.getRecurringGroupInfo(groupId);
+      scenario.groupId = groupId;
+      scenario.amount = Math.abs(amt);
+      if (!rawName) {
+        scenario.name = `${type === 'paycheck' ? 'Paycheck' : 'Bill'}: ${info ? info.description : 'adjustment'}`;
+      }
+    } else if (type === 'loan') {
+      const loanId = document.getElementById('scenarioLoanInput')?.value;
+      if (!loanId) { alert('Select a loan.'); return; }
+      const loan = (this.state.loans || []).find(l => l.id === loanId);
+      scenario.loanId = loanId;
+      scenario.loanOverrides = {
+        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+        termUnit: document.getElementById('scenarioLoanTermUnit').value
+      };
+      const months = scenario.loanOverrides.termUnit === 'years' ? scenario.loanOverrides.term * 12 : scenario.loanOverrides.term;
+      const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, months);
+      scenario.amount = -pi;
+      if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
     }
-  } else if (type === 'paycheck' || type === 'bill') {
-    const groupId = document.getElementById('scenarioGroupInput')?.value;
-    if (!groupId) { alert('Select a recurring item.'); return; }
-    const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
-    if (isNaN(amt)) { alert('Enter a new amount.'); return; }
-    const info = this.getRecurringGroupInfo(groupId);
-    scenario.groupId = groupId;
-    scenario.amount = Math.abs(amt);
-    if (!rawName) {
-      scenario.name = `${type === 'paycheck' ? 'Paycheck' : 'Bill'}: ${info ? info.description : 'adjustment'}`;
-    }
-  } else if (type === 'loan') {
-    const loanId = document.getElementById('scenarioLoanInput')?.value;
-    if (!loanId) { alert('Select a loan.'); return; }
-    const loan = (this.state.loans || []).find(l => l.id === loanId);
-    scenario.loanId = loanId;
-    scenario.loanOverrides = {
-      balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
-      rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-      term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
-      termUnit: document.getElementById('scenarioLoanTermUnit').value
-    };
-    const months = scenario.loanOverrides.termUnit === 'years' ? scenario.loanOverrides.term * 12 : scenario.loanOverrides.term;
-    const pi = this.calculatePI(scenario.loanOverrides.balance, scenario.loanOverrides.rate, months);
-    scenario.amount = -pi;
-    if (!rawName) scenario.name = `Loan: ${loan ? loan.name : 'Hypothetical'}`;
+
+    this.state.scenarios.push(scenario);
+    this.saveState();
+    this.closeModal();
+    this.renderForecaster();
+    this.showToast('Scenario added');
   }
-
-  this.state.scenarios.push(scenario);
-  this.saveState();
-  this.closeModal();
-  this.renderForecaster();
-  this.showToast('Scenario added');
- }
 
   openEditScenarioModal(btn) {
     const s = this.state.scenarios.find(x => x.id === btn.dataset.scenarioId);
@@ -5881,100 +6107,100 @@ onSpendingCustomInput(val) {
   }
 
   prefillScenarioEdit(s) {
-  const type = s.type || 'custom';
-  if (type === 'custom' || type === 'recurring') {
-    const el = document.getElementById('scenarioAmountInput');
-    if (el) el.value = (parseFloat(s.amount) || 0).toFixed(2);
-    if (s.frequency) {
-      const intEl = document.getElementById('scenarioInterval');
-      const freqEl = document.getElementById('scenarioFreq');
-      if (intEl) intEl.value = s.frequency.interval || 1;
-      if (freqEl) freqEl.value = s.frequency.freq || 'months';
+    const type = s.type || 'custom';
+    if (type === 'custom' || type === 'recurring') {
+      const el = document.getElementById('scenarioAmountInput');
+      if (el) el.value = (parseFloat(s.amount) || 0).toFixed(2);
+      if (s.frequency) {
+        const intEl = document.getElementById('scenarioInterval');
+        const freqEl = document.getElementById('scenarioFreq');
+        if (intEl) intEl.value = s.frequency.interval || 1;
+        if (freqEl) freqEl.value = s.frequency.freq || 'months';
+      }
+      this.updateScenarioPreview();
+      return;
     }
-    this.updateScenarioPreview();
-    return;
-  }
-  if (type === 'paycheck' || type === 'bill') {
-    const sel = document.getElementById('scenarioGroupInput');
-    if (sel && s.groupId) sel.value = s.groupId;
-    const amtEl = document.getElementById('scenarioNewAmountInput');
-    if (amtEl) amtEl.value = Math.abs(parseFloat(s.amount) || 0).toFixed(2);
-    return;
-  }
-  if (type === 'loan') {
-    const sel = document.getElementById('scenarioLoanInput');
-    if (sel && s.loanId) {
-      sel.value = s.loanId;
-      this.onScenarioLoanChange();
+    if (type === 'paycheck' || type === 'bill') {
+      const sel = document.getElementById('scenarioGroupInput');
+      if (sel && s.groupId) sel.value = s.groupId;
+      const amtEl = document.getElementById('scenarioNewAmountInput');
+      if (amtEl) amtEl.value = Math.abs(parseFloat(s.amount) || 0).toFixed(2);
+      return;
     }
-    const ov = s.loanOverrides || {};
-    if (ov.balance != null) {
-      const el = document.getElementById('scenarioLoanBalance');
-      if (el) el.value = parseFloat(ov.balance).toFixed(2);
+    if (type === 'loan') {
+      const sel = document.getElementById('scenarioLoanInput');
+      if (sel && s.loanId) {
+        sel.value = s.loanId;
+        this.onScenarioLoanChange();
+      }
+      const ov = s.loanOverrides || {};
+      if (ov.balance != null) {
+        const el = document.getElementById('scenarioLoanBalance');
+        if (el) el.value = parseFloat(ov.balance).toFixed(2);
+      }
+      if (ov.rate != null) {
+        const el = document.getElementById('scenarioLoanRate');
+        if (el) el.value = ov.rate;
+      }
+      if (ov.term != null) {
+        const el = document.getElementById('scenarioLoanTerm');
+        if (el) el.value = ov.term;
+      }
+      if (ov.termUnit != null) {
+        const el = document.getElementById('scenarioLoanTermUnit');
+        if (el) el.value = ov.termUnit;
+      }
     }
-    if (ov.rate != null) {
-      const el = document.getElementById('scenarioLoanRate');
-      if (el) el.value = ov.rate;
-    }
-    if (ov.term != null) {
-      const el = document.getElementById('scenarioLoanTerm');
-      if (el) el.value = ov.term;
-    }
-    if (ov.termUnit != null) {
-      const el = document.getElementById('scenarioLoanTermUnit');
-      if (el) el.value = ov.termUnit;
-    }
-  }
   }
 
   saveEditedScenario() {
-  const id = document.getElementById('editScenarioId').value;
-  const sc = this.state.scenarios.find(s => s.id === id);
-  if (!sc) return;
+    const id = document.getElementById('editScenarioId').value;
+    const sc = this.state.scenarios.find(s => s.id === id);
+    if (!sc) return;
 
-  const type = document.getElementById('scenarioTypeInput').value;
-  const rawName = document.getElementById('scenarioNameInput').value.trim();
+    const type = document.getElementById('scenarioTypeInput').value;
+    const rawName = document.getElementById('scenarioNameInput').value.trim();
 
-  sc.type = type;
-  sc.frequency = null;
-  sc.groupId = null;
-  sc.loanId = null;
-  sc.loanOverrides = null;
+    sc.type = type;
+    sc.frequency = null;
+    sc.groupId = null;
+    sc.loanId = null;
+    sc.loanOverrides = null;
 
-  if (type === 'custom' || type === 'recurring') {
-    const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
-    if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
-    sc.amount = amt;
-    sc.frequency = {
-      interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
-      freq: document.getElementById('scenarioFreq')?.value || 'months'
-    };
-  } else if (type === 'paycheck' || type === 'bill') {
-    const groupId = document.getElementById('scenarioGroupInput')?.value;
-    if (!groupId) { alert('Select a recurring item.'); return; }
-    const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
-    if (isNaN(amt)) { alert('Enter a new amount.'); return; }
-    sc.groupId = groupId;
-    sc.amount = Math.abs(amt);
-  } else if (type === 'loan') {
-    const loanId = document.getElementById('scenarioLoanInput')?.value;
-    if (!loanId) { alert('Select a loan.'); return; }
-    sc.loanId = loanId;
-    sc.loanOverrides = {
-      balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
-      rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
-      term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
-      termUnit: document.getElementById('scenarioLoanTermUnit').value
-    };
-    const months = sc.loanOverrides.termUnit === 'years' ? sc.loanOverrides.term * 12 : sc.loanOverrides.term;
-    sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, months);
-  }
+    if (type === 'custom' || type === 'recurring') {
+      const amt = parseFloat(document.getElementById('scenarioAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a valid amount.'); return; }
+      sc.amount = amt;
+      sc.frequency = {
+        interval: Math.max(1, parseInt(document.getElementById('scenarioInterval')?.value) || 1),
+        freq: document.getElementById('scenarioFreq')?.value || 'months'
+      };
+    } else if (type === 'paycheck' || type === 'bill') {
+      const groupId = document.getElementById('scenarioGroupInput')?.value;
+      if (!groupId) { alert('Select a recurring item.'); return; }
+      const amt = parseFloat(document.getElementById('scenarioNewAmountInput')?.value);
+      if (isNaN(amt)) { alert('Enter a new amount.'); return; }
+      sc.groupId = groupId;
+      sc.amount = Math.abs(amt);
+    } else if (type === 'loan') {
+      const loanId = document.getElementById('scenarioLoanInput')?.value;
+      if (!loanId) { alert('Select a loan.'); return; }
+      sc.loanId = loanId;
+      sc.loanOverrides = {
+        balance: parseFloat(document.getElementById('scenarioLoanBalance').value) || 0,
+        rate: parseFloat(document.getElementById('scenarioLoanRate').value) || 0,
+        term: parseFloat(document.getElementById('scenarioLoanTerm').value) || 30,
+        termUnit: document.getElementById('scenarioLoanTermUnit').value
+      };
+      const months = sc.loanOverrides.termUnit === 'years' ? sc.loanOverrides.term * 12 : sc.loanOverrides.term;
+      sc.amount = -this.calculatePI(sc.loanOverrides.balance, sc.loanOverrides.rate, months);
+    }
 
-  if (rawName) sc.name = rawName;
-  this.saveState();
-  this.closeModal();
-  this.renderForecaster();
-  this.showToast('Scenario updated');
+    if (rawName) sc.name = rawName;
+    this.saveState();
+    this.closeModal();
+    this.renderForecaster();
+    this.showToast('Scenario updated');
   }
 
   deleteScenario() {
@@ -5990,58 +6216,58 @@ onSpendingCustomInput(val) {
    RECURRING ITEMS — Add / List / Edit / Delete
    ============================================================ */
 
-openRecurringModal() {
-  this._showRecurringForm(null);
-}
+  openRecurringModal() {
+    this._showRecurringForm(null);
+  }
 
-openEditRecurringModal(btn) {
-  const groupId = btn.dataset.groupId;
-  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
-  if (!items.length) { this.showToast('Recurring item not found'); return; }
+  openEditRecurringModal(btn) {
+    const groupId = btn.dataset.groupId;
+    const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+    if (!items.length) { this.showToast('Recurring item not found'); return; }
 
-  const first = items[0];
-  const cfg = first.ruleConfig || { interval: 1, freq: 'months' };
-  const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
-  const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
+    const first = items[0];
+    const cfg = first.ruleConfig || { interval: 1, freq: 'months' };
+    const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+    const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
 
-  this._showRecurringForm({
-    groupId,
-    description: first.description,
-    account: first.account,
-    category: first.category,
-    amount: first.amount,
-    startDate: first.date,
-    interval: cfg.interval || 1,
-    freq: cfg.freq || 'months',
-    endType,
-    count: endVal || 12,
-    reminderDays: cfg.reminderDays || 0
-  });
-}
+    this._showRecurringForm({
+      groupId,
+      description: first.description,
+      account: first.account,
+      category: first.category,
+      amount: first.amount,
+      startDate: first.date,
+      interval: cfg.interval || 1,
+      freq: cfg.freq || 'months',
+      endType,
+      count: endVal || 12,
+      reminderDays: cfg.reminderDays || 0
+    });
+  }
 
-_showRecurringForm(existing, isNewPrefill = false) {
-  const isEdit = !!existing && !isNewPrefill;
-  const v = existing || {
-    groupId: null,
-    description: '',
-    account: 'CHECKING',
-    category: 'Bills and Utilities',
-    amount: '',
-    startDate: new Date().toISOString().split('T')[0],
-    interval: 1,
-    freq: 'months',
-    endType: 'count',
-    count: 12,
-    reminderDays: 3
-  };
+  _showRecurringForm(existing, isNewPrefill = false) {
+    const isEdit = !!existing && !isNewPrefill;
+    const v = existing || {
+      groupId: null,
+      description: '',
+      account: 'CHECKING',
+      category: 'Bills and Utilities',
+      amount: '',
+      startDate: new Date().toISOString().split('T')[0],
+      interval: 1,
+      freq: 'months',
+      endType: 'count',
+      count: 12,
+      reminderDays: 3
+    };
 
-  const catOpts = CATEGORIES.map(c =>
-    `<option value="${c}" ${v.category === c ? 'selected' : ''}>${c}</option>`
-  ).join('');
+    const catOpts = CATEGORIES.map(c =>
+      `<option value="${c}" ${v.category === c ? 'selected' : ''}>${c}</option>`
+    ).join('');
 
-  const hasReminder = v.reminderDays > 0;
+    const hasReminder = v.reminderDays > 0;
 
-  this.openModal(`
+    this.openModal(`
     <div class="modal-overlay active">
       <div class="modal">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -6114,7 +6340,7 @@ _showRecurringForm(existing, isNewPrefill = false) {
         </div>
       </div>
     </div>`);
-}
+  }
 
   toggleReminderInput() {
     const isChecked = document.getElementById('recReminderToggle')?.checked;
@@ -6142,7 +6368,7 @@ _showRecurringForm(existing, isNewPrefill = false) {
 
     const sum = pastTxs.reduce((acc, t) => acc + Math.abs(parseFloat(t.amount) || 0), 0);
     const avg = sum / pastTxs.length;
-    
+
     // Check if the original category implies income
     const cat = document.getElementById('recCategory')?.value;
     const isIncome = cat === 'Income';
@@ -6150,42 +6376,42 @@ _showRecurringForm(existing, isNewPrefill = false) {
 
     const amtEl = document.getElementById('recAmount');
     if (amtEl) amtEl.value = finalAmt.toFixed(2);
-    
+
     this.showToast(`Guessed average from ${pastTxs.length} past transactions.`);
   }
 
   toggleAmountSign(inputId) {
     const el = document.getElementById(inputId);
     if (!el) return;
-    
+
     let val = parseFloat(el.value) || 0;
     el.value = (-val).toFixed(2);
   }
 
-onRecurringEndTypeChange() {
-  const type = document.getElementById('recEndType')?.value;
-  const wrapper = document.getElementById('recCountWrapper');
-  if (wrapper) wrapper.style.display = type === 'count' ? 'block' : 'none';
-}
+  onRecurringEndTypeChange() {
+    const type = document.getElementById('recEndType')?.value;
+    const wrapper = document.getElementById('recCountWrapper');
+    if (wrapper) wrapper.style.display = type === 'count' ? 'block' : 'none';
+  }
 
-openManageRecurringModal() {
-  const groups = this.getRecurringGroups(null);
+  openManageRecurringModal() {
+    const groups = this.getRecurringGroups(null);
 
-  const rows = groups.map(g => {
-    const cfg = g.ruleConfig || { interval: 1, freq: 'months' };
-    const int = Math.max(1, cfg.interval || 1);
-    const freq = cfg.freq || 'months';
-    const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
-    const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
+    const rows = groups.map(g => {
+      const cfg = g.ruleConfig || { interval: 1, freq: 'months' };
+      const int = Math.max(1, cfg.interval || 1);
+      const freq = cfg.freq || 'months';
+      const endType = cfg.endType || (cfg.count != null ? 'count' : 'forever');
+      const endVal = cfg.endVal != null ? cfg.endVal : cfg.count;
 
-    const freqWord = freq.slice(0, -1);
-    const freqLabel = int === 1 ? `Every ${freqWord}` : `Every ${int} ${freqWord}s`;
-    const endLabel = endType === 'forever' ? 'Runs forever (32 mo cap)' : `Ends after ${endVal || '?'}`;
+      const freqWord = freq.slice(0, -1);
+      const freqLabel = int === 1 ? `Every ${freqWord}` : `Every ${int} ${freqWord}s`;
+      const endLabel = endType === 'forever' ? 'Runs forever (32 mo cap)' : `Ends after ${endVal || '?'}`;
 
-    const catColors = CATEGORY_COLORS[g.category] || CATEGORY_COLORS['Miscellaneous'];
-    const amtColor = g.amount >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
+      const catColors = CATEGORY_COLORS[g.category] || CATEGORY_COLORS['Miscellaneous'];
+      const amtColor = g.amount >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)';
 
-    return `
+      return `
       <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.75rem 0.9rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
         <div style="min-width:0; flex:1;">
           <div style="font-weight:600; font-size:0.9rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(g.description)}</div>
@@ -6200,9 +6426,9 @@ openManageRecurringModal() {
           <button class="btn btn-sm btn-danger" data-action="deleteRecurringGroup" data-group-id="${g.groupId}" title="Delete">🗑</button>
         </div>
       </div>`;
-  }).join('');
+    }).join('');
 
-  this.openModal(`
+    this.openModal(`
     <div class="modal-overlay active">
       <div class="modal" style="max-width:720px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -6214,110 +6440,110 @@ openManageRecurringModal() {
           Edit any item to change its amount, frequency, or end date.
         </div>
         ${groups.length === 0
-      ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">No recurring items yet.<br><span style="font-size:0.75rem;">Click "+ Add Recurring" below to create one.</span></div>'
-      : rows}
+        ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">No recurring items yet.<br><span style="font-size:0.75rem;">Click "+ Add Recurring" below to create one.</span></div>'
+        : rows}
         <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
           <button class="btn btn-primary btn-sm" data-action="openRecurringModal">+ Add New</button>
         </div>
       </div>
     </div>`);
-}
-
-saveRecurringForm() {
-  const groupId = document.getElementById('recGroupId')?.value || null;
-  const desc = document.getElementById('recDesc').value.trim();
-  const acc = document.getElementById('recAccount').value;
-  const cat = document.getElementById('recCategory').value;
-  const amt = parseFloat(document.getElementById('recAmount').value);
-  const start = document.getElementById('recStart').value;
-  const interval = Math.max(1, parseInt(document.getElementById('recInterval').value) || 1);
-  const freq = document.getElementById('recFreq').value;
-  const endType = document.getElementById('recEndType')?.value || 'count';
-  const hasReminder = document.getElementById('recReminderToggle')?.checked;
-  const reminderDays = hasReminder ? (parseInt(document.getElementById('recReminderDays')?.value) || 3) : 0;
-  const rawCount = parseInt(document.getElementById('recCount')?.value) || 12;
-  const count = Math.min(rawCount, 200);
-
-  if (!desc || isNaN(amt) || !start) {
-    alert('Please fill in description, amount, and start date.');
-    return;
   }
 
-  const isEdit = !!groupId;
-  const finalGroupId = groupId || `rec_${Date.now()}`;
+  saveRecurringForm() {
+    const groupId = document.getElementById('recGroupId')?.value || null;
+    const desc = document.getElementById('recDesc').value.trim();
+    const acc = document.getElementById('recAccount').value;
+    const cat = document.getElementById('recCategory').value;
+    const amt = parseFloat(document.getElementById('recAmount').value);
+    const start = document.getElementById('recStart').value;
+    const interval = Math.max(1, parseInt(document.getElementById('recInterval').value) || 1);
+    const freq = document.getElementById('recFreq').value;
+    const endType = document.getElementById('recEndType')?.value || 'count';
+    const hasReminder = document.getElementById('recReminderToggle')?.checked;
+    const reminderDays = hasReminder ? (parseInt(document.getElementById('recReminderDays')?.value) || 3) : 0;
+    const rawCount = parseInt(document.getElementById('recCount')?.value) || 12;
+    const count = Math.min(rawCount, 200);
 
-  const ruleConfig = endType === 'forever'
-    ? { interval, freq, endType: 'forever', maxMonths: 32, reminderDays }
-    : { interval, freq, endType: 'count', endVal: count, count, maxMonths: 32, reminderDays };
+    if (!desc || isNaN(amt) || !start) {
+      alert('Please fill in description, amount, and start date.');
+      return;
+    }
 
-  if (isEdit) {
+    const isEdit = !!groupId;
+    const finalGroupId = groupId || `rec_${Date.now()}`;
+
+    const ruleConfig = endType === 'forever'
+      ? { interval, freq, endType: 'forever', maxMonths: 32, reminderDays }
+      : { interval, freq, endType: 'count', endVal: count, count, maxMonths: 32, reminderDays };
+
+    if (isEdit) {
+      this.state.transactions = this.state.transactions.filter(
+        t => !(t.status === 'estimated' && t.groupId === finalGroupId)
+      );
+    }
+
+    this.state.transactions.push({
+      id: `est_${Date.now()}_0`,
+      groupId: finalGroupId,
+      isTemplate: true,
+      account: acc,
+      date: start,
+      description: desc,
+      category: cat,
+      flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
+      amount: amt,
+      status: 'estimated',
+      ruleConfig
+    });
+
+    this.expandRecurringTemplates();
+    this.saveState();
+    this.renderTabContent('calendar');
+
+    if (isEdit) {
+      this.openManageRecurringModal();
+      this.showToast('Recurring item updated');
+    } else {
+      this.closeModal();
+      this.showToast('Recurring item added');
+    }
+  }
+
+  deleteRecurringGroup(btn) {
+    const groupId = btn.dataset.groupId;
+    if (!groupId) return;
+
+    const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+    if (!items.length) return;
+
+    if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
+
     this.state.transactions = this.state.transactions.filter(
-      t => !(t.status === 'estimated' && t.groupId === finalGroupId)
+      t => !(t.status === 'estimated' && t.groupId === groupId)
     );
-  }
-
-  this.state.transactions.push({
-    id: `est_${Date.now()}_0`,
-    groupId: finalGroupId,
-    isTemplate: true,
-    account: acc,
-    date: start,
-    description: desc,
-    category: cat,
-    flow: CATEGORY_FLOW_MAP[cat] || 'Flexible Spending',
-    amount: amt,
-    status: 'estimated',
-    ruleConfig
-  });
-
-  this.expandRecurringTemplates();
-  this.saveState();
-  this.renderTabContent('calendar');
-
-  if (isEdit) {
+    this.saveState();
+    this.renderTabContent('calendar');
     this.openManageRecurringModal();
-    this.showToast('Recurring item updated');
-  } else {
-    this.closeModal();
-    this.showToast('Recurring item added');
+    this.showToast('Recurring item deleted');
   }
-}
 
-deleteRecurringGroup(btn) {
-  const groupId = btn.dataset.groupId;
-  if (!groupId) return;
+  deleteRecurringFromEdit() {
+    const groupId = document.getElementById('recGroupId')?.value;
+    if (!groupId) { this.closeModal(); return; }
 
-  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
-  if (!items.length) return;
+    const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
+    if (!items.length) { this.closeModal(); return; }
 
-  if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
+    if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
 
-  this.state.transactions = this.state.transactions.filter(
-    t => !(t.status === 'estimated' && t.groupId === groupId)
-  );
-  this.saveState();
-  this.renderTabContent('calendar');
-  this.openManageRecurringModal();
-  this.showToast('Recurring item deleted');
-}
-
-deleteRecurringFromEdit() {
-  const groupId = document.getElementById('recGroupId')?.value;
-  if (!groupId) { this.closeModal(); return; }
-
-  const items = this.state.transactions.filter(t => t.status === 'estimated' && t.groupId === groupId);
-  if (!items.length) { this.closeModal(); return; }
-
-  if (!confirm(`Delete recurring item "${items[0].description}"?\n\nThis will remove all ${items.length} scheduled occurrence${items.length !== 1 ? 's' : ''}.`)) return;
-
-  this.state.transactions = this.state.transactions.filter(
-    t => !(t.status === 'estimated' && t.groupId === groupId)
-  );
-  this.saveState();
-  this.closeModal();
-  this.renderTabContent('calendar');
-  this.showToast('Recurring item deleted');
-}
+    this.state.transactions = this.state.transactions.filter(
+      t => !(t.status === 'estimated' && t.groupId === groupId)
+    );
+    this.saveState();
+    this.closeModal();
+    this.renderTabContent('calendar');
+    this.showToast('Recurring item deleted');
+  }
 
   fmt(v) {
     if (isNaN(v) || v === null || v === undefined) return '$0';
@@ -6335,25 +6561,25 @@ deleteRecurringFromEdit() {
    SOFT DELETE / TRASH
    ============================================================ */
 
-softDeleteTransaction(btn) {
-  const id = btn.dataset.txId;
-  const tx = this.state.transactions.find(t => t.id === id);
-  if (!tx || tx.deletedAt) return;
-  tx.deletedAt = new Date().toISOString();
-  this.recalculateBalances();
-  this.saveState();
-  this.renderTabContent('checking');
-  this.showToast('🗑 Moved to Trash');
-}
+  softDeleteTransaction(btn) {
+    const id = btn.dataset.txId;
+    const tx = this.state.transactions.find(t => t.id === id);
+    if (!tx || tx.deletedAt) return;
+    tx.deletedAt = new Date().toISOString();
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast('🗑 Moved to Trash');
+  }
 
-hardDeletePending(btn) {
-  const id = btn.dataset.txId;
-  if (!confirm('Remove this pending item?')) return;
-  this.state.pendingItems = this.state.pendingItems.filter(p => p.id !== id);
-  this.saveState();
-  this.renderTabContent('checking');
-  this.showToast('Pending item removed');
-}
+  hardDeletePending(btn) {
+    const id = btn.dataset.txId;
+    if (!confirm('Remove this pending item?')) return;
+    this.state.pendingItems = this.state.pendingItems.filter(p => p.id !== id);
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast('Pending item removed');
+  }
 
   clearPendingItem(btn) {
     const id = btn.dataset.txId;
@@ -6391,66 +6617,66 @@ hardDeletePending(btn) {
     this.showToast('✅ Pending item marked as Posted');
   }
 
-bulkSoftDeleteSelected() {
-  if (!this.selectedRows.size) return;
-  let count = 0;
-  this.selectedRows.forEach(id => {
+  bulkSoftDeleteSelected() {
+    if (!this.selectedRows.size) return;
+    let count = 0;
+    this.selectedRows.forEach(id => {
+      const tx = this.state.transactions.find(t => t.id === id);
+      if (tx && !tx.deletedAt) { tx.deletedAt = new Date().toISOString(); count++; }
+    });
+    this.selectedRows.clear();
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.showToast(`🗑 Moved ${count} transaction${count !== 1 ? 's' : ''} to Trash`);
+  }
+
+  restoreTransaction(btn) {
+    const id = btn.dataset.txId;
     const tx = this.state.transactions.find(t => t.id === id);
-    if (tx && !tx.deletedAt) { tx.deletedAt = new Date().toISOString(); count++; }
-  });
-  this.selectedRows.clear();
-  this.recalculateBalances();
-  this.saveState();
-  this.renderTabContent('checking');
-  this.showToast(`🗑 Moved ${count} transaction${count !== 1 ? 's' : ''} to Trash`);
-}
+    if (!tx || !tx.deletedAt) return;
+    delete tx.deletedAt;
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.openTrashModal();
+    this.showToast('✓ Transaction restored');
+  }
 
-restoreTransaction(btn) {
-  const id = btn.dataset.txId;
-  const tx = this.state.transactions.find(t => t.id === id);
-  if (!tx || !tx.deletedAt) return;
-  delete tx.deletedAt;
-  this.recalculateBalances();
-  this.saveState();
-  this.renderTabContent('checking');
-  this.openTrashModal();
-  this.showToast('✓ Transaction restored');
-}
+  permanentlyDeleteTransaction(btn) {
+    const id = btn.dataset.txId;
+    const tx = this.state.transactions.find(t => t.id === id);
+    if (!tx) return;
+    if (!confirm(`Permanently delete "${tx.description}"?\n\nThis cannot be undone.`)) return;
+    this.state.transactions = this.state.transactions.filter(t => t.id !== id);
+    this.recalculateBalances();
+    this.saveState();
+    this.renderTabContent('checking');
+    this.openTrashModal();
+    this.showToast('Deleted permanently');
+  }
 
-permanentlyDeleteTransaction(btn) {
-  const id = btn.dataset.txId;
-  const tx = this.state.transactions.find(t => t.id === id);
-  if (!tx) return;
-  if (!confirm(`Permanently delete "${tx.description}"?\n\nThis cannot be undone.`)) return;
-  this.state.transactions = this.state.transactions.filter(t => t.id !== id);
-  this.recalculateBalances();
-  this.saveState();
-  this.renderTabContent('checking');
-  this.openTrashModal();
-  this.showToast('Deleted permanently');
-}
+  emptyTrash() {
+    const items = this.state.transactions.filter(t => t.deletedAt);
+    if (!items.length) return;
+    if (!confirm(`Permanently delete all ${items.length} transaction${items.length !== 1 ? 's' : ''} in the trash?`)) return;
+    if (!confirm('DOUBLE CONFIRMATION: This cannot be undone.')) return;
+    this.state.transactions = this.state.transactions.filter(t => !t.deletedAt);
+    this.saveState();
+    this.renderTabContent('checking');
+    this.closeModal();
+    this.showToast('Trash emptied');
+  }
 
-emptyTrash() {
-  const items = this.state.transactions.filter(t => t.deletedAt);
-  if (!items.length) return;
-  if (!confirm(`Permanently delete all ${items.length} transaction${items.length !== 1 ? 's' : ''} in the trash?`)) return;
-  if (!confirm('DOUBLE CONFIRMATION: This cannot be undone.')) return;
-  this.state.transactions = this.state.transactions.filter(t => !t.deletedAt);
-  this.saveState();
-  this.renderTabContent('checking');
-  this.closeModal();
-  this.showToast('Trash emptied');
-}
+  openTrashModal() {
+    const items = this.state.transactions
+      .filter(t => t.deletedAt)
+      .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
 
-openTrashModal() {
-  const items = this.state.transactions
-    .filter(t => t.deletedAt)
-    .sort((a, b) => new Date(b.deletedAt) - new Date(a.deletedAt));
-
-  const rows = items.map(t => {
-    const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
-    const amtColor = t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)';
-    return `
+    const rows = items.map(t => {
+      const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
+      const amtColor = t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)';
+      return `
       <div style="display:flex; justify-content:space-between; align-items:center; background:var(--bg-base); padding:0.65rem 0.85rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:0.5rem; gap:0.5rem;">
         <div style="min-width:0; flex:1;">
           <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${this.escapeHtml(t.nickname || t.description)}</div>
@@ -6465,9 +6691,9 @@ openTrashModal() {
           <button class="btn btn-sm btn-danger" data-action="permanentlyDeleteTransaction" data-tx-id="${t.id}" title="Delete permanently">🗑</button>
         </div>
       </div>`;
-  }).join('');
+    }).join('');
 
-  this.openModal(`
+    this.openModal(`
     <div class="modal-overlay active">
       <div class="modal" style="max-width:720px;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
@@ -6480,16 +6706,16 @@ openTrashModal() {
           Soft-deleted items do not count toward balances or charts.
         </div>
         ${items.length === 0
-      ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">Trash is empty.</div>'
-      : rows}
+        ? '<div style="color:var(--text-muted); text-align:center; padding:2rem 0; font-size:0.9rem;">Trash is empty.</div>'
+        : rows}
         ${items.length > 0
-      ? `<div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
+        ? `<div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1rem;">
                <button class="btn btn-danger btn-sm" data-action="emptyTrash">Empty Trash (${items.length})</button>
              </div>`
-      : ''}
+        : ''}
       </div>
     </div>`);
-}
+  }
 
   showToast(msg) {
     const c = document.getElementById('toastContainer');
