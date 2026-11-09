@@ -5028,7 +5028,13 @@ onSpendingCustomInput(val) {
             </select></div>
             <div><label class="stat-label">Date</label><input type="date" id="pendingDate" value="${new Date().toISOString().split('T')[0]}"></div>
             <div><label class="stat-label">Description</label><input type="text" id="pendingDesc"></div>
-            <div><label class="stat-label">Amount ($)</label><input type="number" step="0.01" id="pendingAmount"></div>
+            <div>
+              <label class="stat-label">Amount ($)</label>
+              <div style="display:flex; gap:0.5rem; align-items:center;">
+                <input type="number" step="0.01" id="pendingAmount" style="flex:1;">
+                <button class="btn btn-sm" onclick="app.toggleAmountSign('pendingAmount')" style="padding:0 10px; font-weight:bold; font-size:1rem;" title="Flip between Income (+) and Expense (-)">+/-</button>
+              </div>
+            </div>
           </div>
           <div style="display:flex; justify-content:flex-end; gap:0.5rem; margin-top:1.5rem;">
             <button class="btn" data-action="closeModal">Cancel</button>
@@ -6051,11 +6057,15 @@ _showRecurringForm(existing, isNewPrefill = false) {
           </select></div>
           <div><label class="stat-label">Category</label><select id="recCategory">${catOpts}</select></div>
           
-          <!-- NEW AMOUNT FIELD WITH GUESS BUTTON -->
+          <!-- NEW AMOUNT FIELD WITH GUESS AND +/- BUTTON -->
           <div>
             <label class="stat-label">Amount ($)</label>
             <div style="display:flex; gap:0.5rem; align-items:center;">
               <input type="number" step="0.01" id="recAmount" value="${v.amount !== '' ? Number(v.amount).toFixed(2) : ''}" style="flex:1;">
+              
+              <!-- NEW +/- BUTTON -->
+              <button class="btn btn-sm" onclick="app.toggleAmountSign('recAmount')" style="padding:0 10px; font-weight:bold; font-size:1rem;" title="Flip between Income (+) and Expense (-)">+/-</button>
+              
               <button class="btn btn-sm" onclick="app.guessRecurringAmount()" style="border-color:var(--accent-primary); color:var(--accent-primary);" title="Calculate average from past transactions">🔮 Guess</button>
             </div>
           </div>
@@ -6142,6 +6152,14 @@ _showRecurringForm(existing, isNewPrefill = false) {
     if (amtEl) amtEl.value = finalAmt.toFixed(2);
     
     this.showToast(`Guessed average from ${pastTxs.length} past transactions.`);
+  }
+
+  toggleAmountSign(inputId) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+    
+    let val = parseFloat(el.value) || 0;
+    el.value = (-val).toFixed(2);
   }
 
 onRecurringEndTypeChange() {
