@@ -283,8 +283,8 @@ textarea:focus {
 
 .view-container {
   flex: 1;
-  padding: 1.5rem 2rem; /* Slightly increased side padding for wide screens */
-  max-width: 100%;      /* Removed the 1400px limit */
+  padding: 1.5rem;
+  max-width: 1600px; /* Increased from 1400px to let the table breathe */
   margin: 0 auto;
   width: 100%;
   display: none;
@@ -365,10 +365,13 @@ textarea:focus {
   max-height: 70vh;
   overflow-y: auto;
   position: relative;
+  scrollbar-gutter: stable; /* Prevents scrollbar from overlapping content */
 }
 
 table {
   width: 100%;
+  min-width: 1150px; /* Increased to prevent horizontal squishing */
+  table-layout: fixed; /* NEW: Forces exact column widths */
   border-collapse: separate;
   border-spacing: 0;
   text-align: left;
@@ -377,7 +380,7 @@ table {
 
 th {
   background: var(--bg-elevated);
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0.75rem; /* Adjusted padding */
   font-weight: 600;
   color: var(--text-muted);
   border-bottom: 1px solid var(--border-subtle);
@@ -395,9 +398,12 @@ th:hover {
 }
 
 td {
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 0.75rem; /* Adjusted padding */
   border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
+  white-space: nowrap; /* NEW: Prevents dates and flow from wrapping */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 tr:last-child td {

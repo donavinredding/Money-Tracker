@@ -1757,15 +1757,16 @@ class MoneyTrackerApp {
     <div class="table-container card ${this.compactDensity ? 'compact-density' : ''}" style="padding:0;" id="checkingTableContainer">
       <table id="checkingTable">
         <thead><tr>
-          <th style="width:30px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
-          <th data-sort="date">Date ${this.sortArrow('date')}</th>
-          <th data-sort="description">Description ${this.sortArrow('description')}</th>
-          <th data-sort="category">Category ${this.sortArrow('category')}</th>
-          <th>Flow</th>
-          <th data-sort="amount">Amount ${this.sortArrow('amount')}</th>
-          <th data-sort="balance">Balance ${this.sortArrow('balance')}</th>
-          <th>Status</th><th title="Lock prevents auto-rules from overwriting">Lock</th>
-          <th style="width:80px;" title="Actions">Actions</th>
+          <th style="width:40px;"><input type="checkbox" id="checkingHeaderSelect" title="Select all"></th>
+          <th data-sort="date" style="width:120px;">Date ${this.sortArrow('date')}</th>
+          <th data-sort="description" style="width:auto;">Description ${this.sortArrow('description')}</th>
+          <th data-sort="category" style="width:200px;">Category ${this.sortArrow('category')}</th>
+          <th style="width:150px;">Flow</th>
+          <th data-sort="amount" style="width:120px;">Amount ${this.sortArrow('amount')}</th>
+          <th data-sort="balance" style="width:120px;">Balance ${this.sortArrow('balance')}</th>
+          <th style="width:100px;">Status</th>
+          <th style="width:60px;" title="Lock prevents auto-rules from overwriting">Lock</th>
+          <th style="width:60px;" title="Actions">Actions</th>
         </tr></thead>
         <tbody id="checkingTableBody"></tbody>
       </table>
@@ -1812,6 +1813,8 @@ class MoneyTrackerApp {
     return `
     <section class="view-container active">
       <div class="stat-header" id="networthStats"></div>
+      
+      <!-- TREND CHART -->
       <div class="card" style="margin-bottom:1.5rem;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;">
           <h3 style="font-size:1rem; font-weight:600;">Total Household Position Trend</h3>
@@ -1826,31 +1829,20 @@ class MoneyTrackerApp {
         </div>
         <canvas id="networthChart" height="260" style="width:100%; display:block;"></canvas>
       </div>
-      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:1.5rem;">
+
+      <!-- NEW BOTTOM GRID -->
+      <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:1.5rem; align-items: start;">
+        
+        <!-- COMPOSITION CARD -->
         <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; flex-wrap:wrap; gap:0.5rem;">
-            <h3 style="font-size:1rem; font-weight:600;">Spending by Category</h3>
-            <div style="display:flex; gap:0.5rem; align-items:center;">
-              <select id="spendingRangeSelect" onchange="app.onSpendingRangeChange(this.value)" style="width:auto; min-width:150px;">
-                <option value="week_avg" ${this.spendingRange === 'week_avg' ? 'selected' : ''}>Weekly Average</option>
-                <option value="month_avg" ${this.spendingRange === 'month_avg' ? 'selected' : ''}>Monthly Average</option>
-                <option value="last_week" ${this.spendingRange === 'last_week' ? 'selected' : ''}>Last Week</option>
-                <option value="last_month" ${this.spendingRange === 'last_month' ? 'selected' : ''}>Last Month</option>
-                <option value="last_custom_days" ${this.spendingRange === 'last_custom_days' ? 'selected' : ''}>Last # Days</option>
-                <option value="last_custom_weeks" ${this.spendingRange === 'last_custom_weeks' ? 'selected' : ''}>Last # Weeks</option>
-                <option value="last_custom_months" ${this.spendingRange === 'last_custom_months' ? 'selected' : ''}>Last # Months</option>
-              </select>
-              <input type="number" id="spendingCustomVal" min="1" max="365" value="${this.spendingCustom}" 
-                     oninput="app.onSpendingCustomInput(this.value)" 
-                     style="width:70px; display:${this.spendingRange.startsWith('last_custom') ? 'block' : 'none'};">
-            </div>
-          </div>
-          <canvas id="categoryDonut" height="240" style="width:100%; display:block;"></canvas>
-          <div id="categoryLegend" style="display:grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap:0.5rem; margin-top:1rem;"></div>
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Net Worth Composition</h3>
+          <div id="networthComposition"></div>
         </div>
+
+        <!-- QUICK STATS (Replaced Roundups) -->
         <div class="card">
-          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Roundup Sweeps Summary</h3>
-          <div id="roundupsSummary"></div>
+          <h3 style="font-size:1rem; font-weight:600; margin-bottom:1rem;">Quick Stats</h3>
+          <div id="networthQuickStats"></div>
         </div>
       </div>
     </section>`;
@@ -2199,8 +2191,9 @@ class MoneyTrackerApp {
     const colors = CATEGORY_COLORS[t.category] || CATEGORY_COLORS['Miscellaneous'];
     const flow = CATEGORY_FLOW_MAP[t.category] || 'Flexible Spending';
     const dn = t.nickname
-      ? `<div style="font-weight:700; color:var(--accent-primary);">${this.escapeHtml(t.nickname)}</div><div style="font-size:0.75rem; color:var(--text-dim);">${this.escapeHtml(t.description)}</div>`
-      : `<div style="font-weight:600;">${this.escapeHtml(t.description)}</div>`;
+      ? `<div style="font-weight:700; color:var(--accent-primary); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:400px;" title="${this.escapeHtml(t.nickname)}">${this.escapeHtml(t.nickname)}</div>
+        <div style="font-size:0.75rem; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:400px;" title="${this.escapeHtml(t.description)}">${this.escapeHtml(t.description)}</div>`
+      : `<div style="font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:400px;" title="${this.escapeHtml(t.description)}">${this.escapeHtml(t.description)}</div>`;
 
     if (isPending) {
       return `<tr data-tx-row="${t.id}">
@@ -2305,21 +2298,96 @@ class MoneyTrackerApp {
   renderNetWorthView() {
     const chk = this.getBalances('CHECKING');
     const sav = this.getBalances('SAVINGS');
-    const nw = chk.available + sav.available + chk.vaults;
-    const stats = document.getElementById('networthStats');
-    if (stats) stats.innerHTML = `
-      <div class="stat-card"><div class="stat-label">Total Household Net Worth</div>
-        <div class="stat-value mono" style="color:var(--accent-positive)">$${nw.toFixed(2)}</div>
-        <div class="stat-subtext">Checking + Savings + Vaults</div></div>`;
+    
+    // Calculate total debt from loans
+    const totalDebt = (this.state.loans || []).reduce((sum, l) => sum + (parseFloat(l.balance) || 0), 0);
+    
+    // Net worth = Assets - Liabilities
+    const totalAssets = chk.available + sav.available + chk.vaults;
+    const nw = totalAssets - totalDebt;
 
+    // Top Stats
+    const stats = document.getElementById('networthStats');
+    if (stats) {
+      // Calculate change (comparing to 30 days ago)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      // Simplistic change calculation based on current transaction history
+      let pastNetWorth = totalAssets; 
+      // (A deeper calculation would iterate through transactions to find exact 30-day ago balance, 
+      // but for now we will just show the current total to avoid breaking the chart logic).
+
+      stats.innerHTML = `
+        <div class="stat-card">
+          <div class="stat-label">Total Household Net Worth</div>
+          <div class="stat-value mono" style="color:${nw >= 0 ? 'var(--accent-positive)' : 'var(--accent-negative)'}">$${nw.toFixed(2)}</div>
+          <div class="stat-subtext">Total Assets minus Total Liabilities</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Assets</div>
+          <div class="stat-value mono">$${totalAssets.toFixed(2)}</div>
+          <div class="stat-subtext">Checking + Savings + Vaults</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Total Liabilities</div>
+          <div class="stat-value mono" style="color:var(--accent-negative)">$${totalDebt.toFixed(2)}</div>
+          <div class="stat-subtext">Active Loans & Debts</div>
+        </div>
+      `;
+    }
+
+    // Composition Breakdown
+    const compEl = document.getElementById('networthComposition');
+    if (compEl) {
+      const items = [
+        { label: 'Checking', val: chk.available, color: 'var(--accent-primary)' },
+        { label: 'Savings', val: sav.available, color: 'var(--accent-secondary)' },
+        { label: 'Vaults', val: chk.vaults, color: '#36f097' },
+        { label: 'Debt', val: totalDebt, color: 'var(--accent-negative)' }
+      ];
+
+      compEl.innerHTML = items.map(item => {
+        const pct = totalAssets > 0 ? (item.val / totalAssets) * 100 : 0;
+        // Cap the visual bar at 100% just in case debt exceeds assets
+        const visualPct = Math.min(100, pct); 
+        
+        return `
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex; justify-content:space-between; font-size:0.85rem; margin-bottom:0.35rem;">
+            <span style="color:var(--text-muted);">${item.label}</span>
+            <span class="mono" style="font-weight:600; color:${item.color};">$${item.val.toFixed(2)}</span>
+          </div>
+          <div style="height:8px; background:var(--bg-elevated); border-radius:4px; overflow:hidden;">
+            <div style="height:100%; width:${visualPct}%; background:${item.color}; border-radius:4px; transition:width 0.5s ease;"></div>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    // Quick Stats
     const roundups = this.state.transactions.filter(t => t.status !== 'estimated' && !t.deletedAt && t.description && t.description.toLowerCase().includes('roundup'));
     const rt = roundups.reduce((s, t) => s + Math.abs(parseFloat(t.amount) || 0), 0);
-    const rs = document.getElementById('roundupsSummary');
-    if (rs) rs.innerHTML = `
-      <div style="display:flex; flex-direction:column; gap:0.5rem;">
-        <div style="font-size:1.4rem;" class="mono">$${rt.toFixed(2)}</div>
-        <div style="color:var(--text-muted); font-size:0.85rem;">Total Swept from ${roundups.length} roundup transactions</div>
-      </div>`;
+    
+    const qsEl = document.getElementById('networthQuickStats');
+    if (qsEl) {
+      qsEl.innerHTML = `
+        <div style="display:flex; flex-direction:column; gap:1rem;">
+          <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div class="stat-label">Roundup Sweeps</div>
+            <div class="mono" style="font-size:1.4rem; font-weight:700; color:var(--accent-positive);">$${rt.toFixed(2)}</div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Total swept from ${roundups.length} transactions</div>
+          </div>
+          <div style="background:var(--bg-base); padding:1rem; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div class="stat-label">Savings Rate</div>
+            <div class="mono" style="font-size:1.4rem; font-weight:700; color:var(--accent-secondary);">
+              ${totalAssets > 0 ? ((sav.available + chk.vaults) / totalAssets * 100).toFixed(1) : '0.0'}%
+            </div>
+            <div style="font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Percentage of assets held in savings & vaults</div>
+          </div>
+        </div>
+      `;
+    }
   }
 
   getSafeToSpend(days = 7) {
