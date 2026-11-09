@@ -284,7 +284,7 @@ textarea:focus {
 .view-container {
   flex: 1;
   padding: 1.5rem;
-  max-width: 1400px;
+  max-width: 1800px; /* Increased from 1400px to allow stretching on wide screens */
   margin: 0 auto;
   width: 100%;
   display: none;
