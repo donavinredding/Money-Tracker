@@ -976,7 +976,7 @@ class MoneyTrackerApp {
 
       let cur = new Date(startDate);
       let i = 0;
-      
+
       while (cur <= capDate && i < 200) {
         if (endType === 'until' && endVal && cur > new Date(endVal + 'T00:00:00')) break;
         if (endType === 'count' && endVal && i >= endVal) break;
@@ -985,7 +985,7 @@ class MoneyTrackerApp {
 
         // --- SMART CHECK: HAS THIS BEEN PAID OR SKIPPED? ---
         let alreadyPosted = false;
-        
+
         if (freq === 'months' || freq === 'years') {
           // For monthly/yearly bills, check if we already paid it this month
           const targetMonth = dateStr.substring(0, 7);
@@ -1516,7 +1516,7 @@ class MoneyTrackerApp {
       const toneColor = { positive: 'var(--accent-positive)', pending: 'var(--accent-pending)', negative: 'var(--accent-negative)' }[hero.tone];
       const toneBg = { positive: 'rgba(0,255,157,0.06)', pending: 'rgba(255,176,32,0.06)', negative: 'rgba(255,61,113,0.08)' }[hero.tone];
       const toneBorder = { positive: 'rgba(0,255,157,0.25)', pending: 'rgba(255,176,32,0.3)', negative: 'rgba(255,61,113,0.35)' }[hero.tone];
-      
+
       heroEl.innerHTML = `
         <div style="background:${toneBg}; border:1px solid ${toneBorder}; border-radius:var(--radius-lg); padding:1.25rem 1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
@@ -1538,11 +1538,11 @@ class MoneyTrackerApp {
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
+
     const getProjectedBalance = (days) => {
-      const targetDate = new Date(today); 
+      const targetDate = new Date(today);
       targetDate.setDate(today.getDate() + days);
-      
+
       const upcoming = this.state.transactions.filter(t => {
         if (t.status !== 'estimated' || t.deletedAt) return false;
         const txDate = new Date(t.date + 'T00:00:00');
@@ -1594,13 +1594,13 @@ class MoneyTrackerApp {
     // 1. Upcoming Bills
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + this.upcomingBillsRange);
-    
+
     const bills = this.state.transactions.filter(t => {
       if (t.status !== 'estimated' || t.deletedAt || t.amount >= 0) return false;
       const txDate = new Date(t.date + 'T00:00:00');
       return txDate >= today && txDate <= nextWeek;
-    }).sort((a,b) => new Date(a.date) - new Date(b.date));
-    
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+
     const billsEl = document.getElementById('dashUpcomingBills');
     if (billsEl) {
       if (!bills.length) {
@@ -1624,7 +1624,7 @@ class MoneyTrackerApp {
     // 2. Recent Activity (Filtered by the Timeframe dropdown)
     const pastDate = new Date(today);
     pastDate.setDate(today.getDate() - this.upcomingBillsRange);
-    
+
     const recent = this.state.transactions
       .filter(t => {
         if (t.status === 'estimated' || t.deletedAt) return false;
@@ -1654,7 +1654,7 @@ class MoneyTrackerApp {
     // 3. Top Vaults
     const vaultsEl = document.getElementById('dashVaults');
     if (vaultsEl) {
-      const vaults = [...(this.state.vaults || [])].sort((a,b) => (parseFloat(b.balance) || 0) - (parseFloat(a.balance) || 0)).slice(0, 4);
+      const vaults = [...(this.state.vaults || [])].sort((a, b) => (parseFloat(b.balance) || 0) - (parseFloat(a.balance) || 0)).slice(0, 4);
       const totalVaults = (this.state.vaults || []).reduce((s, v) => s + (parseFloat(v.balance) || 0), 0);
 
       if (!vaults.length) {
@@ -4529,13 +4529,13 @@ class MoneyTrackerApp {
       if (t.deletedAt || t.status === 'estimated' || parseFloat(t.amount) >= 0) return;
       const txDate = new Date(t.date + 'T00:00:00');
       if (txDate < start || txDate > now) return;
-      
+
       const c = t.category || 'Miscellaneous';
       const amt = Math.abs(parseFloat(t.amount) || 0) / divisor;
-      
+
       totals[c] = (totals[c] || 0) + amt;
       grand += amt;
-      
+
       if (!txsByCategory[c]) txsByCategory[c] = [];
       txsByCategory[c].push(t);
     });
@@ -4564,7 +4564,7 @@ class MoneyTrackerApp {
     // Bind hover events only once
     if (!canvas._hasInteractiveListeners) {
       canvas._hasInteractiveListeners = true;
-      
+
       canvas.addEventListener('mousemove', (e) => {
         if (!this._donutData) return;
         const r = canvas.getBoundingClientRect();
@@ -4577,15 +4577,15 @@ class MoneyTrackerApp {
         if (dist > 78 - 26 && dist < 78 + 10) {
           let angle = Math.atan2(dy, dx);
           if (angle < 0) angle += Math.PI * 2;
-          
+
           let hovered = null;
           let startA = -Math.PI / 2;
-          
+
           for (const [cat, val] of this._donutData.display) {
             const sliceA = (val / this._donutData.grand) * Math.PI * 2;
             let s = startA;
             let eA = startA + sliceA;
-            
+
             let normS = s < 0 ? s + Math.PI * 2 : s;
             let normE = eA < 0 ? eA + Math.PI * 2 : eA;
 
@@ -4638,7 +4638,7 @@ class MoneyTrackerApp {
     if (!this._donutData) return;
     const canvas = document.getElementById('dashCategoryDonut');
     if (!canvas) return;
-    
+
     const { display, grand, rect } = this._donutData;
     const ctx = canvas.getContext('2d');
     canvas.width = rect.width * window.devicePixelRatio;
@@ -4673,7 +4673,7 @@ class MoneyTrackerApp {
         const midRadius = radius - 13; // Middle of the 26px thick ring
         const tx = cx + Math.cos(midAngle) * midRadius;
         const ty = cy + Math.sin(midAngle) * midRadius;
-        
+
         ctx.fillStyle = '#0a0a0f'; // Dark text for contrast against bright slices
         ctx.font = '700 10px Inter';
         ctx.textAlign = 'center';
@@ -4687,35 +4687,35 @@ class MoneyTrackerApp {
     // Draw center text
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    
+
     if (highlightCat) {
       const val = display.find(d => d[0] === highlightCat)[1];
       const cfg = CATEGORY_COLORS[highlightCat] || CATEGORY_COLORS['Other'];
       const pct = ((val / grand) * 100).toFixed(1);
-      
+
       // Category Name
       ctx.fillStyle = cfg.color;
       ctx.font = '600 11px Inter';
       ctx.fillText(highlightCat.substring(0, 14), cx, cy - 10);
-      
+
       // Amount & Percentage
       ctx.fillStyle = '#f0f2f8';
       ctx.font = '700 13px JetBrains Mono';
       ctx.fillText('$' + val.toFixed(0) + ' (' + pct + '%)', cx, cy + 10);
-      
+
     } else {
       // Default "Total Spent" state
       ctx.fillStyle = '#8a8f9e';
       ctx.font = '600 10px Inter';
       ctx.fillText('TOTAL SPENT', cx, cy - 10);
-      
+
       ctx.fillStyle = '#f0f2f8';
       ctx.font = '700 16px JetBrains Mono';
       ctx.fillText('$' + grand.toFixed(0), cx, cy + 10);
     }
   }
 
-    showLegendTooltip(e, cat) {
+  showLegendTooltip(e, cat) {
     let tooltip = document.getElementById('chartTooltip');
     if (!tooltip) {
       tooltip = document.createElement('div');
@@ -4728,7 +4728,7 @@ class MoneyTrackerApp {
     if (!data) return;
 
     let html = `<div style="font-weight:700; font-size:0.85rem; color:var(--accent-primary); margin-bottom:0.5rem;">${cat}</div>`;
-    
+
     // Total
     const total = data.display.find(d => d[0] === cat)[1];
     html += `<div style="display:flex; justify-content:space-between; margin-bottom:0.4rem;">
@@ -4739,7 +4739,7 @@ class MoneyTrackerApp {
     // Top Transactions
     if (cat !== 'Other' && data.txs[cat]) {
       const topTxs = data.txs[cat].sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)).slice(0, 3);
-      
+
       if (topTxs.length > 0) {
         html += `<div style="font-size:0.7rem; color:var(--text-muted); margin-bottom:0.3rem; border-top:1px solid var(--border-subtle); padding-top:0.5rem;">Top Transactions:</div>`;
         html += `<div style="display:flex; flex-direction:column; gap:0.35rem;">`;
@@ -4752,7 +4752,7 @@ class MoneyTrackerApp {
         html += `</div>`;
       }
     } else if (cat === 'Other') {
-       html += `<div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">Includes multiple smaller category totals.</div>`;
+      html += `<div style="font-size:0.7rem; color:var(--text-dim); margin-top:0.4rem;">Includes multiple smaller category totals.</div>`;
     }
 
     tooltip.innerHTML = html;
