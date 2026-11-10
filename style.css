@@ -932,3 +932,128 @@ select option {
 .legend-item:hover {
   background: var(--bg-hover);
 }
+
+/* ============================================
+   MOBILE RESPONSIVE TABLE (CARD LAYOUT)
+   ============================================ */
+@media (max-width: 768px) {
+  /* Hide the desktop table container styling */
+  #checkingTableContainer {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  
+  /* Force table to act like blocks */
+  #checkingTable {
+    min-width: 0 !important;
+  }
+  #checkingTable thead {
+    display: none !important;
+  }
+  #checkingTable tbody, #checkingTable tr, #checkingTable td {
+    display: block !important;
+    width: 100% !important;
+  }
+  
+  /* Style each row as a distinct card */
+  #checkingTable tr {
+    background: var(--bg-surface) !important;
+    border: 1px solid var(--border-subtle) !important;
+    border-radius: var(--radius-md) !important;
+    margin-bottom: 0.75rem !important;
+    padding: 0.85rem !important;
+    position: relative !important;
+    box-shadow: var(--shadow-card) !important;
+  }
+  
+  /* Remove default table cell padding and borders */
+  #checkingTable td {
+    border: none !important;
+    padding: 0 !important;
+    white-space: normal !important;
+  }
+  #checkingTable tr:hover td {
+    background: transparent !important;
+  }
+
+  /* Hide less critical columns on mobile */
+  #checkingTable td:nth-child(5), /* Flow */
+  #checkingTable td:nth-child(7) { /* Balance */
+    display: none !important;
+  }
+
+  /* --- Specific Column Layout --- */
+  
+  /* 1. Checkbox (Absolute top right) */
+  #checkingTable td:nth-child(1) {
+    position: absolute !important;
+    top: 0.85rem !important;
+    right: 0.85rem !important;
+    width: auto !important;
+    z-index: 10;
+  }
+  #checkingTable td:nth-child(1) input {
+    width: 20px !important;
+    height: 20px !important;
+    cursor: pointer;
+  }
+
+  /* 2. Date (Top left, small and muted) */
+  #checkingTable td:nth-child(2) {
+    font-size: 0.75rem !important;
+    color: var(--text-muted) !important;
+    margin-bottom: 0.4rem !important;
+    padding-right: 2rem !important;
+  }
+
+  /* 3. Description (Main focus, allow wrapping) */
+  #checkingTable td:nth-child(3) {
+    margin-bottom: 0.6rem !important;
+  }
+  #checkingTable td:nth-child(3) > div {
+    white-space: normal !important; /* Override inline nowrap */
+    max-width: 100% !important;     /* Override inline max-width */
+    overflow: visible !important;
+    text-overflow: clip !important;
+  }
+
+  /* 4. Category (Pill) */
+  #checkingTable td:nth-child(4) {
+    margin-bottom: 0.6rem !important;
+  }
+
+  /* 6. Amount (Large and prominent) */
+  #checkingTable td:nth-child(6) {
+    font-size: 1.15rem !important;
+    font-weight: 700 !important;
+    margin-bottom: 0.5rem !important;
+    display: inline-block !important;
+    margin-right: 0.5rem !important;
+  }
+
+  /* 8. Status (Next to amount) */
+  #checkingTable td:nth-child(8) {
+    display: inline-block !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  /* 9 & 10. Lock and Trash (Absolute bottom right) */
+  #checkingTable td:nth-child(9),
+  #checkingTable td:nth-child(10) {
+    position: absolute !important;
+    bottom: 0.85rem !important;
+    width: auto !important;
+    font-size: 1.25rem !important; /* Bigger tap target */
+    padding: 0.25rem !important;
+  }
+  #checkingTable td:nth-child(9) { right: 3.25rem !important; } /* Lock */
+  #checkingTable td:nth-child(10) { right: 0.85rem !important; } /* Trash */
+  
+  /* Fix spacing for pending item action buttons */
+  #checkingTable td:nth-child(10) > div {
+    flex-direction: row !important;
+  }
+}

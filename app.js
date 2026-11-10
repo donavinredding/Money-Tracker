@@ -1761,12 +1761,12 @@ class MoneyTrackerApp {
           <th data-sort="date" style="width:120px;">Date ${this.sortArrow('date')}</th>
           <th data-sort="description" style="width:auto;">Description ${this.sortArrow('description')}</th>
           <th data-sort="category" style="width:200px;">Category ${this.sortArrow('category')}</th>
-          <th style="width:150px;">Flow</th>
+          <th class="hide-mobile" style="width:130px;">Flow</th>
           <th data-sort="amount" style="width:120px;">Amount ${this.sortArrow('amount')}</th>
-          <th data-sort="balance" style="width:120px;">Balance ${this.sortArrow('balance')}</th>
-          <th style="width:100px;">Status</th>
-          <th style="width:60px;" title="Lock prevents auto-rules from overwriting">Lock</th>
-          <th style="width:60px;" title="Actions">Actions</th>
+          <th class="hide-mobile" data-sort="balance" style="width:120px;">Balance ${this.sortArrow('balance')}</th>
+          <th style="width:130px;">Status</th>
+          <th class="hide-mobile" style="width:60px;" title="Lock prevents auto-rules from overwriting">Lock</th>
+          <th style="width:90px;" title="Actions">Actions</th>
         </tr></thead>
         <tbody id="checkingTableBody"></tbody>
       </table>
@@ -2204,12 +2204,12 @@ class MoneyTrackerApp {
       <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
       <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
       <td class="mono" style="color:var(--text-muted)" title="Pending items don't have a posted balance">—</td>
-      <td><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
+      <td style="text-align:center;"><span class="badge badge-pending" title="This transaction has not cleared the bank yet.">PENDING</span></td>
       <td></td>
       <td style="text-align:center;">
         <div style="display:flex; gap:8px; justify-content:center; align-items:center;">
-          <button class="btn btn-sm" data-action="clearPendingItem" data-tx-id="${t.id}" style="padding: 2px 8px; font-size: 11px; background:rgba(0,255,157,0.1); border-color:var(--accent-positive); color:var(--accent-positive);" title="Mark as Posted">✅</button>
-          <button class="btn btn-sm" data-action="hardDeletePending" data-tx-id="${t.id}" style="padding: 2px 8px; font-size: 11px; background:transparent; border:none; color:var(--accent-negative);" title="Delete permanently">✕</button>
+          <button class="btn btn-sm" data-action="clearPendingItem" data-tx-id="${t.id}" style="padding: 4px 10px; font-size: 14px; background:rgba(0,255,157,0.1); border-color:var(--accent-positive); color:var(--accent-positive);" title="Mark as Posted">✅</button>
+          <button class="btn btn-sm" data-action="hardDeletePending" data-tx-id="${t.id}" style="padding: 4px 10px; font-size: 14px; background:transparent; border:none; color:var(--accent-negative);" title="Delete permanently">✕</button>
         </div>
       </td>
     </tr>`;
@@ -2226,9 +2226,9 @@ class MoneyTrackerApp {
     <td><span style="font-size:0.75rem; color:var(--text-muted)">${flow}</span></td>
     <td class="mono" style="color:${t.amount < 0 ? 'var(--accent-negative)' : 'var(--accent-positive)'}">$${(parseFloat(t.amount) || 0).toFixed(2)}</td>
     <td class="mono">$${(parseFloat(t.balance) || 0).toFixed(2)}</td>
-    <td><span class="badge badge-posted" title="Transaction has cleared.">${t.status || 'POSTED'}</span></td>
-    <td style="cursor:pointer; text-align:center;" data-toggle-lock="${t.id}" title="${t.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes'}">${t.locked ? '🔒' : '🔓'}</td>
-    <td style="cursor:pointer; text-align:center; color:var(--text-muted);" data-action="softDeleteTransaction" data-tx-id="${t.id}" title="Move to Trash">🗑</td>
+    <td style="text-align:center;"><span class="badge badge-posted" title="Transaction has cleared.">${t.status || 'POSTED'}</span></td>
+    <td style="cursor:pointer; text-align:center; font-size:1.2rem;" data-toggle-lock="${t.id}" title="${t.locked ? 'Unlock to allow auto-rules to update this row' : 'Lock to prevent auto-rules from overwriting your manual changes'}">${t.locked ? '🔒' : '🔓'}</td>
+    <td style="cursor:pointer; text-align:center; color:var(--text-muted); font-size:1.2rem;" data-action="softDeleteTransaction" data-tx-id="${t.id}" title="Move to Trash">🗑</td>
   </tr>`;
   }
 
