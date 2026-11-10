@@ -133,6 +133,7 @@ class MoneyTrackerApp {
     this.spendingRange = 'last_month';
     this.spendingCustom = 30;
     this.upcomingBillsRange = 7;
+    this.safeToSpendMode = 'paycheck';
   }
 
   /* ============ STORAGE HEALTH / TRIM ============ */
@@ -1512,7 +1513,7 @@ class MoneyTrackerApp {
   }
 
   renderDashboardView() {
-    const hero = this.getSafeToSpend(7);
+    const hero = this.getSafeToSpend(7, this.safeToSpendMode);
     const heroEl = document.getElementById('dashHero');
     if (heroEl) {
       const toneColor = { positive: 'var(--accent-positive)', pending: 'var(--accent-pending)', negative: 'var(--accent-negative)' }[hero.tone];
@@ -1522,7 +1523,13 @@ class MoneyTrackerApp {
       heroEl.innerHTML = `
         <div style="background:${toneBg}; border:1px solid ${toneBorder}; border-radius:var(--radius-lg); padding:1.25rem 1.5rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:1rem;">
           <div>
-            <div class="stat-label" style="font-size:0.7rem; letter-spacing:0.1em; margin-bottom:0.25rem;">SAFE TO SPEND · NEXT 7 DAYS</div>
+            <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+              <div class="stat-label" style="font-size:0.7rem; letter-spacing:0.1em; margin:0;">SAFE TO SPEND · ${hero.daysLabel}</div>
+              <select onchange="app.updateSafeToSpendMode(this.value)" style="background:transparent; border:1px solid ${toneBorder}; color:${toneColor}; font-size:0.65rem; padding:2px 6px; border-radius:4px; cursor:pointer; outline:none;">
+                <option value="paycheck" ${this.safeToSpendMode === 'paycheck' ? 'selected' : ''}>Till Paycheck</option>
+                <option value="7days" ${this.safeToSpendMode === '7days' ? 'selected' : ''}>7 Days</option>
+              </select>
+            </div>
             <div class="mono" style="font-size:2.2rem; font-weight:800; color:${toneColor}; line-height:1; text-shadow:0 0 20px ${toneColor}44;">
               $${hero.safe.toFixed(2)}
             </div>
@@ -2390,25 +2397,63 @@ class MoneyTrackerApp {
     }
   }
 
-  getSafeToSpend(days = 7) {
+  getSafeToSpend(days = 7, mode = '7days') {
     const checking = this.getBalances('CHECKING').available;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const horizon = new Date(today);
-    horizon.setDate(today.getDate() + days);
+    let horizon = new Date(today);
+    let daysLabel = 'NEXT 7 DAYS';
+
+    if (mode === 'paycheck') {
+      // Find the next estimated income transaction
+      const nextPaycheck = this.state.transactions
+        .filter(t => 
+          t.status === 'estimated' && 
+          t.amount > 0 && 
+          (t.category === 'Income' || t.flow === 'Income') &&
+          new Date(t.date + 'T00:00:00') >= today
+        )
+        .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+
+      if (nextPaycheck) {
+        horizon = new Date(nextPaycheck.date + 'T00:00:00');
+        const diffTime = Math.abs(horizon - today);
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        daysLabel = diffDays === 0 ? 'TILL PAYCHECK (TODAY)' : `TILL PAYCHECK (${diffDays} DAYS)`;
+      } else {
+        // Fallback if no paycheck is found
+        horizon.setDate(today.getDate() + 7);
+        daysLabel = 'NEXT 7 DAYS (NO PAYCHECK FOUND)';
+      }
+    } else {
+      // Standard 7-day mode
+      horizon.setDate(today.getDate() + days);
+    }
 
     let billsTotal = 0;
     this.state.transactions.forEach(t => {
       if (t.status !== 'estimated' || t.deletedAt || t.amount >= 0) return;
       const d = new Date(t.date + 'T00:00:00');
+      // Include bills up to and including the paycheck date
       if (d >= today && d <= horizon) billsTotal += Math.abs(t.amount);
     });
+
+    // Include pending expenses (if any exist) in the calculation
+    const pendingExpenses = this.state.pendingItems
+      .filter(p => p.amount < 0)
+      .reduce((sum, p) => sum + Math.abs(p.amount), 0);
 
     const safe = checking - billsTotal;
     let tone = 'positive';
     if (safe < 0) tone = 'negative';
     else if (safe < 100) tone = 'pending';
-    return { safe, checking, billsTotal, tone };
+    
+    return { safe, checking, billsTotal, tone, daysLabel };
+  }
+
+  updateSafeToSpendMode(val) {
+    this.safeToSpendMode = val;
+    this.renderDashboardView();
   }
 
   getBalances(accountKey) {
